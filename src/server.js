@@ -82,6 +82,7 @@ const { spawn, execFile } = require("child_process");
 
 const core = require("./core");
 const { instructorDoc } = require("./templates/onboard");
+const { PROMPT_DEFAULTS } = require("./templates/index");
 const slackActions = require("./slack-actions");
 
 // ─── Constants ────────────────────────────────────────────────────────────────
@@ -384,6 +385,13 @@ async function handleRequest(req, res) {
         available: !!process.env.OPENROUTER_API_KEY,
       },
     ]);
+    return;
+  }
+
+  // GET /api/prompts/defaults — default text for the user-editable prompts, so
+  // the Settings UI can pre-fill editors and offer "Reset to default".
+  if (req.method === "GET" && pathname === "/api/prompts/defaults") {
+    json(res, 200, PROMPT_DEFAULTS);
     return;
   }
 

@@ -263,11 +263,13 @@ async function runAsk(cfg, state) {
   const files = gatherDelta(root, d);
   const deltaText = deltaForPrompt(files);
 
+  const prompts = cfg.prompts || {};
   const prompt = askQuestions({
-    thesis: THESIS,
+    thesis: prompts.thesis || THESIS,
     openCommitments: state.commitments || [],
     deltaText,
     deleted: d.deleted,
+    guidance: prompts.askGuidance,
   });
 
   const questions = await complete(prompt, { provider: cfg.provider, config: cfg });
@@ -356,8 +358,9 @@ async function runSync(cfg, state, input) {
   const openBefore = (state.commitments || []).filter((c) => c.status === "open");
 
   // --- Step A: extract structured facts (memory update) ---
+  const prompts = cfg.prompts || {};
   const exPrompt = extractFacts({
-    thesis: THESIS,
+    thesis: prompts.thesis || THESIS,
     date,
     openCommitments: openBefore,
     chat,
@@ -376,10 +379,11 @@ async function runSync(cfg, state, input) {
   const historyContext = buildHistoryContext(cfg, state, view, date);
 
   const synthPrompt = synthesizeEntry({
-    thesis: THESIS,
+    thesis: prompts.thesis || THESIS,
     historyContext,
     work,
     chat,
+    extraGuidance: prompts.synthesisGuidance,
   });
 
   const entry = await complete(synthPrompt, { provider: cfg.provider, config: cfg });

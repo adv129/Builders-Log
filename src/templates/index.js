@@ -17,10 +17,20 @@
 "use strict";
 
 const { THESIS } = require("./thesis");
-const { askQuestions } = require("./ask");
+const { askQuestions, DEFAULT_ASK_GUIDANCE } = require("./ask");
 const { extractFacts } = require("./extract");
 const { synthesizeEntry } = require("./synthesize");
 const { INSTRUCTOR_QUESTIONS, instructorDoc } = require("./onboard");
+
+// Default text for the user-editable prompts (Settings → Prompts). The UI reads
+// these to pre-fill the editors and power "Reset to default". Anything NOT
+// listed here — the extraction JSON schema, output formats, section headers —
+// is intentionally fixed in code and not user-editable.
+const PROMPT_DEFAULTS = {
+  thesis: THESIS,
+  askGuidance: DEFAULT_ASK_GUIDANCE,
+  synthesisGuidance: "",
+};
 
 module.exports = {
   THESIS,
@@ -29,4 +39,6 @@ module.exports = {
   synthesizeEntry,
   INSTRUCTOR_QUESTIONS,
   instructorDoc,
+  DEFAULT_ASK_GUIDANCE,
+  PROMPT_DEFAULTS,
 };

@@ -17,11 +17,18 @@
 
 "use strict";
 
-function synthesizeEntry({ thesis, historyContext, work, chat }) {
+function synthesizeEntry({ thesis, historyContext, work, chat, extraGuidance }) {
   const workFilesJson = JSON.stringify((work && work.files) ? work.files : {}, null, 2);
+
+  // Optional user steering (Settings → Prompts). Injected as extra guidance;
+  // the three fixed section headers below are NOT user-editable.
+  const extra = (extraGuidance && extraGuidance.trim())
+    ? `Additional guidance from the builder: ${extraGuidance.trim()}\n\n`
+    : "";
 
   return (
     `${thesis}\n\n` +
+    extra +
     `From the builder's work delta, interview answers, and the history context below, ` +
     `output exactly these three markdown sections and nothing else:\n\n` +
     `## Builder Log\n- **What I did** — 1 to 3 factual bullets.\n` +

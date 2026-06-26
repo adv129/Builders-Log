@@ -171,13 +171,26 @@ let appConfig = null;
 
 // ── Nav ────────────────────────────────────────────────────────────────────────
 
+// Builders Club mark — gear badge with a "B" (from the brand favicon).
+const BRAND_LOGO_SVG =
+  '<svg class="nav-logo" width="30" height="30" viewBox="-50 -50 100 100" role="img" aria-label="Builders Club">' +
+  '<path d="M40.00,0.00L47.70,5.35L46.65,11.29L37.59,13.68L30.64,25.71L33.10,34.76L28.48,38.63L20.00,34.64L6.95,39.39L3.01,47.91L-3.01,47.91L-6.95,39.39L-20.00,34.64L-28.48,38.63L-33.10,34.76L-30.64,25.71L-37.59,13.68L-46.65,11.29L-47.70,5.35L-40.00,0.00L-37.59,-13.68L-42.99,-21.34L-39.98,-26.56L-30.64,-25.71L-20.00,-34.64L-19.22,-43.99L-13.55,-46.05L-6.95,-39.39L6.95,-39.39L13.55,-46.05L19.22,-43.99L20.00,-34.64L30.64,-25.71L39.98,-26.56L42.99,-21.34L37.59,-13.68Z" ' +
+  'fill="#4886f3" stroke="#181a1f" stroke-width="2.5" stroke-linejoin="round"/>' +
+  '<text x="0" y="1" text-anchor="middle" dominant-baseline="central" font-family="\'Archivo Black\',\'Arial Black\',sans-serif" font-weight="900" font-size="46" fill="#ffffff">B</text>' +
+  "</svg>";
+
 function buildNav(setupComplete) {
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
 
-  const brand = el("span", "nav-brand", "Builder Log");
+  // Brand: logo + wordmark, links home to the first available screen.
+  const brand = el("a", "nav-brand");
+  brand.href = setupComplete ? "#/checkin" : "#/settings";
+  brand.innerHTML = BRAND_LOGO_SVG + '<span class="nav-wordmark">Builder Log</span>';
   nav.appendChild(brand);
 
+  // Links pushed to the right side of the header.
+  const linksWrap = el("div", "nav-links");
   const links = setupComplete
     ? [["#/checkin", "Check-in"], ["#/history", "History"], ["#/settings", "Settings"]]
     : [["#/settings", "Settings"]];
@@ -188,8 +201,9 @@ function buildNav(setupComplete) {
     a.textContent = label;
     a.className = "nav-link";
     a.setAttribute("data-route", hash);
-    nav.appendChild(a);
+    linksWrap.appendChild(a);
   });
+  nav.appendChild(linksWrap);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -975,11 +989,15 @@ function renderSettings(container) {
   screen.appendChild(spinner("Loading…"));
   container.appendChild(screen);
 
-  Promise.all([api("GET", "/api/config"), api("GET", "/api/providers")])
-    .then(([cfg, providers]) => {
+  Promise.all([
+    api("GET", "/api/config"),
+    api("GET", "/api/providers"),
+    api("GET", "/api/prompts/defaults"),
+  ])
+    .then(([cfg, providers, promptDefaults]) => {
       screen.innerHTML = "";
       screen.appendChild(el("h1", null, "Settings"));
-      renderSettingsForm(screen, cfg, providers);
+      renderSettingsForm(screen, cfg, providers, promptDefaults);
     })
     .catch((e) => {
       screen.innerHTML = "";
@@ -988,13 +1006,18 @@ function renderSettings(container) {
     });
 }
 
-function renderSettingsForm(container, cfg, providers) {
+function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
   // Deep clone so edits don't mutate the original
   let draft = JSON.parse(JSON.stringify(cfg));
 
-  function section(title) {
-    const sec = el("div", "settings-section");
-    sec.appendChild(el("h2", null, esc(title)));
+  // Collapsible section (native <details>): callers appendChild content, which
+  // lands in the disclosure body after the <summary> header. First one opens.
+  let sectionCount = 0;
+  function section(title, opts = {}) {
+    const sec = el("details", "settings-section");
+    if (opts.open || (opts.open === undefined && sectionCount === 0)) sec.open = true;
+    sectionCount++;
+    sec.appendChild(el("summary", "settings-summary", esc(title)));
     return sec;
   }
 
@@ -1218,6 +1241,7 @@ function renderSettingsForm(container, cfg, providers) {
     saveTokenBtn.disabled = false;
   });
   tokenRow.appendChild(saveTokenBtn);
+  tokenRow.style.marginBottom = "1.75rem"; // breathing room before the user-ID fields
   slackDetails.appendChild(tokenRow);
 
   // User ID fields.
@@ -1312,6 +1336,70 @@ function renderSettingsForm(container, cfg, providers) {
 
     container.appendChild(slackActSec);
   }
+
+  // ── Prompts (advanced) ──
+  const promptSec = section("Prompts (advanced)");
+  promptSec.appendChild(el("p", "muted",
+    "Steer how the agent is instructed. These control its voice and behavior. " +
+    "The locked parts below — output formats and the strict JSON the agent must " +
+    "return — stay fixed so your log never breaks."));
+
+  if (!draft.prompts) draft.prompts = {};
+
+  // One editable prompt: textarea pre-filled with the saved override or the
+  // default; "Reset to default" clears the override (empty → code uses default).
+  function promptField(label, key, help, rows) {
+    const def = promptDefaults[key] || "";
+    const grp = el("div", "field-group");
+
+    const labelRow = el("div", "prompt-label-row");
+    labelRow.appendChild(el("label", "field-label", esc(label)));
+    const resetBtn = el("button", "btn-ghost prompt-reset", "Reset to default");
+    labelRow.appendChild(resetBtn);
+    grp.appendChild(labelRow);
+
+    if (help) grp.appendChild(el("p", "muted prompt-help", help));
+
+    const ta = el("textarea", "field-input prompt-input");
+    ta.rows = rows || 4;
+    const saved = draft.prompts[key];
+    ta.value = (saved != null && saved !== "") ? saved : def;
+    if (key === "synthesisGuidance" && !saved) {
+      ta.placeholder = "Optional. e.g. Keep bullets under 15 words; prefer past tense.";
+      ta.value = saved || "";
+    }
+    ta.addEventListener("input", () => { draft.prompts[key] = ta.value; });
+    resetBtn.addEventListener("click", () => {
+      ta.value = (key === "synthesisGuidance") ? "" : def;
+      draft.prompts[key] = "";
+    });
+
+    grp.appendChild(ta);
+    promptSec.appendChild(grp);
+  }
+
+  promptField("Agent voice & principles", "thesis",
+    "Prepended to every request — the agent's identity and tone.", 4);
+  promptField("Interview guidance", "askGuidance",
+    "What the check-in questions should surface. The “numbered list only” output format stays fixed.", 6);
+  promptField("Entry synthesis guidance (optional)", "synthesisGuidance",
+    "Extra steering for the written entry. The three sections (Builder Log / For your instructor / Friction check) stay fixed.", 3);
+
+  const locked = el("div", "callout");
+  locked.appendChild(el("p", "callout-title", "Locked — not editable"));
+  const lockedList = document.createElement("ul");
+  [
+    "Fact extraction — the agent must return strict JSON the app parses to track your commitments and blockers. Editing it would corrupt your log.",
+    "Output formats and the entry's section headers.",
+  ].forEach((t) => {
+    const li = document.createElement("li");
+    li.textContent = t;
+    lockedList.appendChild(li);
+  });
+  locked.appendChild(lockedList);
+  promptSec.appendChild(locked);
+
+  container.appendChild(promptSec);
 
   // ── Save ──
   const resultArea = el("div");
