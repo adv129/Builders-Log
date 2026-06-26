@@ -1,0 +1,31 @@
+{
+  "setupComplete": false,
+  "provider": "claude-p",
+  "openrouter": { "model": "openai/gpt-4o-mini" },
+  "codex": { "model": null },
+  "chatSurface": "terminal",
+  "slack": {
+    "studentUserId": null,
+    "instructorUserId": null,
+    "gateInstructorMessages": true
+  },
+  "root": "./demo_project",
+  "builder": {
+    "name": "Your Name",
+    "project": "One line: what you're building",
+    "context": "Anything that helps ground the questions (solo? stack? stage?)",
+    "voice": "Plain, concise. No hype."
+  },
+  "instructor": {
+    "name": "Your Mentor's Name",
+    "askedOn": null,
+    "answeredOn": null,
+    "caresAbout": [],
+    "wantsFlaggedEarly": [],
+    "cadence": null,
+    "format": null,
+    "notUseful": null,
+    "currentGoal": null,
+    "raw": null
+  }
+}

@@ -1,0 +1,18 @@
+# Your personal config and runtime state (never commit these)
+config.json
+state.json
+
+# Generated, per-run data (your actual logs / transcripts live here)
+raw/
+log/
+reports/
+INSTRUCTOR_ONBOARDING.md
+
+# Secrets
+.env
+
+# Node / OS / editor cruft
+node_modules/
+.DS_Store
+*.log
+.Rhistory

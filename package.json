@@ -1,0 +1,21 @@
+{
+  "name": "builders-log",
+  "version": "0.1.0",
+  "description": "A provider-agnostic agent that turns your daily work into a disciplined builder log, interviews you about it, tracks commitments over time, and surfaces only what matters to your mentor.",
+  "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
+  "type": "commonjs",
+  "bin": {
+    "builders-log": "loop.js"
+  },
+  "scripts": {
+    "ask": "node loop.js ask",
+    "sync": "node loop.js sync",
+    "status": "node loop.js status",
+    "send-instructor": "node loop.js send-instructor",
+    "onboard": "node onboard.js --check"
+  },
+  "dependencies": {}
+}
