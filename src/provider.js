@@ -1,5 +1,5 @@
 /*
- * Builder Log Agent — Provider seam.
+ * Builder Log Agent — Provider seam (src/).
  *
  * The whole framework needs exactly one capability from an LLM:
  *     complete(prompt) -> text
@@ -13,6 +13,8 @@
  * adapter can read model settings (e.g. opts.config.openrouter.model). Secrets
  * come from the environment, never config.json.
  */
+
+"use strict";
 
 const { spawn } = require("child_process");
 

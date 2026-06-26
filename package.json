@@ -8,14 +8,15 @@
   },
   "type": "commonjs",
   "bin": {
-    "builders-log": "loop.js"
+    "builders-log": "src/cli.js"
   },
   "scripts": {
-    "ask": "node loop.js ask",
-    "sync": "node loop.js sync",
-    "status": "node loop.js status",
-    "send-instructor": "node loop.js send-instructor",
-    "onboard": "node onboard.js --check"
+    "start": "node src/server.js",
+    "serve": "node src/server.js",
+    "ask": "node src/cli.js ask",
+    "sync": "node src/cli.js sync",
+    "status": "node src/cli.js status",
+    "test": "node --test"
   },
   "dependencies": {}
 }

@@ -1,5 +1,5 @@
 /*
- * Builder Log Agent — Memory (structured history)
+ * Builder Log Agent — Memory (structured history) (src/).
  *
  * Pure functions over state. This file ACCUMULATES structured memory as plain
  * data — commitments, blockers, file churn. It deliberately makes NO judgment
@@ -8,6 +8,8 @@
  * history plus the deployment's context. `historyView` is the read-only
  * projection used both to prompt the model and to print factual status.
  */
+
+"use strict";
 
 function daysSince(dateStr, today) {
   if (!dateStr) return 0;

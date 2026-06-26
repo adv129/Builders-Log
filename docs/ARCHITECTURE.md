@@ -1,101 +1,122 @@
 # Architecture
 
-Builders Log is a small, vendor-neutral core wrapped by two swappable "seams." This doc explains how the pieces fit so you can read the code or extend it confidently.
+Builder Log is a surface-agnostic engine wrapped by three thin surfaces. This document explains how the pieces fit so you can read the code or extend it confidently.
 
-## The big picture — two seams around a neutral core
-
-```
-                          TRIGGER
-         (today: you run it · later: cron · webhook · Slack)
-                             │
-                             ▼
-   ┌───────────────────────────────────────────────────────────┐
-   │                    CORE LOOP   (loop.js)                    │
-   │       ask  →  [you answer]  →  sync      (+ status)         │
-   │   vendor-neutral · surface-neutral · owns all orchestration │
-   └────┬──────────────────────┬───────────────────────┬────────┘
-        │                      │                        │
-   reads WORK             calls the BRAIN          reads/writes
-   (observe.js)           (provider.js)             STORAGE
-        │                      │                        │
-        ▼                      ▼                        ▼
-  file deltas under     complete(prompt)→text     config.json · state.json
-  config.root           ┌──────┼───────┐          raw/ (verbatim) · log/ (derived)
-                    claude-p  codex  openrouter
-```
-
-Two swap points:
-
-- **Provider seam** (`provider.js`) — the only thing the loop needs from an LLM is `complete(prompt) → text`. Adapters: `claude-p` (Claude Code login, no key), `codex` (`codex exec`), `openrouter` (any model via API key). Switch with one line in `config.json`.
-- **Connector seam** — where work comes in and chat goes out. Work input is local files (`observe.js`); chat is the terminal or Slack (`connectors/slack.js`), chosen by `config.chatSurface`.
-
-The **core loop never names a vendor or a surface** — that's what makes this a framework rather than a script.
-
-## The daily flow (two phases)
-
-The loop is split into two steps on purpose, so the *same shape* works in the terminal and in Slack (questions go out on one trigger; answers come back as a delta on the next):
+## The big picture
 
 ```
-STEP 1 — ask                                            (trigger #1)
-  observe.snapshot(root)  vs  state.files ──delta?──no──▶ "nothing to ask"
-        │ yes
+                   TRIGGER
+     (user clicks in web app · npm script · future cron)
+                        │
+                        ▼
+  ┌────────────────────────────────────────────────────────┐
+  │               ENGINE  (src/core.js)                    │
+  │        runAsk  →  [builder answers]  →  runSync        │
+  │   surface-agnostic · no console.log · no Slack inside  │
+  └──────┬──────────────────────┬──────────────────────────┘
+         │                      │
+    reads WORK              calls the BRAIN           reads/writes
+    (src/observe.js)        (src/provider.js)         STORAGE
+         │                      │                          │
+         ▼                      ▼                          ▼
+   file deltas under     complete(prompt)→text      config.json · state.json
+   config.root           ┌──────┼───────┐           raw/ (verbatim) · log/ (derived)
+                     claude-p  codex  openrouter
+```
+
+## Three surfaces — one engine
+
+The engine (`src/core.js`) is called by three thin surfaces. Each surface handles its own I/O and calls the engine functions to do the real work:
+
+| Surface | File | What it does |
+|---|---|---|
+| **Web app** (primary) | `src/server.js` | Zero-dep Node `http` server, bound to 127.0.0.1. Serves the SPA (`public/`) and a small JSON API. The browser is where builders do check-ins, see history, and change settings. |
+| **CLI** (power users) | `src/cli.js` | Minimal terminal wrapper. `ask` / `sync` / `status`. Reads answers from `raw/chat/<date>.md`. Kept tiny — no logic. |
+| **Slack** (reminders + delivery) | `src/slack-actions.js` + `src/connectors/slack.js` | DM the builder a reminder link; DM the instructor note after a check-in. Future: full check-in via Slack DM. |
+
+## The two-phase daily flow
+
+The loop is intentionally split so the same shape works in the browser today and via Slack in the future:
+
+```
+PHASE 1 — runAsk                                          (trigger: click / npm run ask)
+  observe.snapshot(root)  vs  state.files ──no delta──▶ {changed:false} — nothing to do
+        │ delta
         ▼
-  read the changed files (truncated)
+  read changed files (excerpts, up to 4000 chars each)
         │
         ▼
-  provider.complete( thesis + "ask 3–5 grounded questions" + open commitments + file excerpts )
+  provider.complete( THESIS + "ask 3-5 grounded questions" + open commitments + file excerpts )
         │
-        ├──▶ raw/work/DATE.json     RAW: the delta (new/modified/deleted + excerpts)
-        └──▶ raw/chat/DATE.md       RAW: the questions (+ blank answer slots, or DM'd via Slack)
-                       │
-                       ▼
-            ┌──────────────────────────┐
-            │  YOU answer               │   ← terminal file, or Slack DM
-            └──────────────────────────┘
-                       │
-STEP 2 — sync                                           (trigger #2)
-                       ▼
-  read answers (file or Slack)  +  raw/work/DATE.json
-                       │
+        ├──▶ raw/work/<date>.json     RAW: file delta + excerpts (verbatim)
+        └──▶ raw/chat/<date>.md       RAW: questions + blank answer slots
+
+                    ┌──────────────────────────────┐
+                    │  Builder answers              │ ← web UI inline / CLI file edit
+                    └──────────────────────────────┘
+                                  │
+PHASE 2 — runSync                                         (trigger: click / npm run sync)
+                                  ▼
+  read answers + raw/work/<date>.json
+                                  │
         (A) EXTRACT ─ provider.complete(→ STRICT JSON: resolved / newCommitments / blockers)
-                       │
-        (B) MEMORY ─ track.applyExtraction + bumpChurn ──▶ updates state.json
-                       │     resolve-with-evidence · carry forward · dedupe re-commits
-                       ▼
+                                  │
+        (B) MEMORY ─ track.applyExtraction + bumpChurn ──▶ mutates state in memory
+                │     resolve-with-evidence · carry forward · dedupe re-commits
+                ▼
         (C) SYNTH ─ provider.complete(
-                       thesis + 3-section contract
-                       + HISTORY CONTEXT (track.historyView) + instructor prefs
-                       + work delta + your answers )
-                       │
-                       ├──▶ log/DATE.md     DERIVED: Builder Log · For-your-instructor (triage) · Friction check
-                       └──▶ state.json      commit snapshot + lastRun + commitments
+                       THESIS + 3-section contract
+                       + historyView (accumulated facts — no pre-judgment)
+                       + instructor prefs + work delta + answers)
+                                  │
+                                  ├──▶ log/<date>.md          DERIVED: the log entry
+                                  ├──▶ raw/instructor/<date>.md  RAW: instructor draft
+                                  └──▶ state.json             updated commitments + snapshot
 ```
 
 ### Significance is judged, not hardcoded
 
-Earlier versions computed "stalls" with fixed thresholds (open ≥ 3 days, etc.). That doesn't generalize across contexts, so it was removed. Now `track.historyView()` projects the accumulated memory into **plain facts** (each open commitment's age + carried count + whether it has evidence, blockers with counts, file churn), and the synthesis prompt hands those facts to the LLM with instruction to **judge** what's stalling and what deserves the mentor's attention — using the trajectory and what the mentor said they care about. No baked-in numbers.
+`track.historyView()` projects accumulated memory into **plain facts** (each open commitment's age + carried count + evidence flag, blockers with counts, file churn). The synthesis prompt passes these raw facts to the LLM with instruction to **judge** significance from the trajectory and what the instructor said they care about. No baked-in day thresholds.
 
 ## Components
 
 | File | Responsibility |
 |---|---|
-| `loop.js` | Orchestrates `ask` / `sync` / `status` / `send-instructor`; holds the prompts; writes the raw/derived split. |
-| `provider.js` | `complete(prompt, opts)` → text. Dispatches to the configured adapter. Adapters receive `opts.config` for model settings; secrets come from env. |
-| `observe.js` | `snapshot(root)` → `{path: mtime}`, `diff(prev, curr)` → `{added, modified, deleted}`. Ignores `node_modules/.git/.DS_Store` always, and the agent's own files only when it's watching its own folder. |
-| `track.js` | Pure memory functions: `applyExtraction` (resolve/carry/dedupe commitments, blocker recurrence), `bumpChurn`, and `historyView` (read-only factual projection). No judgment, no thresholds. |
-| `onboard.js` | Setup + validation (`--check`/`--summary`) and the mentor questionnaire (`--instructor-doc`). |
-| `connectors/slack.js` | `openDm` / `postMessage` / `historySince` / `sendToUser`. Reads replies as a delta since a stored timestamp; filters out the bot's own messages. |
+| `src/core.js` | Surface-agnostic engine. `runAsk` / `runSync` / `statusView` return structured data and do no I/O to the terminal or Slack. Also exports `loadConfig`, `loadState`, `saveState`, `today`, `ensureDirs`, `ROOT`. |
+| `src/server.js` | Zero-dep `http` server. Loads `.env`, serves `public/`, handles JSON API routes (`/api/ask`, `/api/sync`, `/api/status`, `/api/config`, `/api/logs`, `/api/reminder`, `/api/send-instructor`, etc.). Binds to 127.0.0.1 only. |
+| `src/cli.js` | Thin terminal surface. `ask` / `sync` / `status` subcommands. Reads/writes only what the terminal needs; delegates all logic to `src/core.js`. |
+| `src/provider.js` | `complete(prompt, opts)` → text. Dispatches to the configured adapter. Adapters: `claude-p` (stdin to `claude -p`), `codex` (stdin to `codex exec -`), `openrouter` (HTTPS POST). Secrets from `process.env` only. |
+| `src/observe.js` | `snapshot(root)` → `{relPath: mtimeMs}`. `diff(prev, curr)` → `{isFirstRun, added, modified, deleted}`. Ignores `node_modules`, `.git`, dotfiles always; ignores agent-owned files when watching the agent's own root. |
+| `src/track.js` | Pure memory functions: `applyExtraction` (resolve / carry / dedupe commitments, blocker recurrence), `bumpChurn`, `historyView` (read-only factual projection). No judgment, no thresholds. All tested. |
+| `src/slack-actions.js` | High-level Slack operations: `sendReminder`, `sendInstructorNote`, `askInstructor`, `collectInstructorAnswers`. Reads config/state; calls the connector; returns structured results. No HTTP, no printing. |
+| `src/connectors/slack.js` | Low-level Slack API primitives: `openDm`, `postMessage`, `historySince`, `sendToUser`. Retry-After backoff on HTTP 429. `SLACK_API_BASE` env var for test overriding. |
+| `src/templates/` | Prompts as functions behind a manifest (`index.js`). `thesis.js` (THESIS preamble), `ask.js`, `extract.js`, `synthesize.js`, `onboard.js`. Prompt wording is unit-tested in `test/templates.test.js`. |
 
 ## Storage model — RAW vs DERIVED
 
-- **RAW** (`raw/work`, `raw/chat`, `raw/instructor`): inputs captured verbatim, append-only, never rewritten. This is the audit trail behind every "evidence, not activity" claim.
-- **DERIVED** (`log/`, `reports/`, and the computed parts of `state.json`): synthesized output that can be regenerated from RAW. If the synthesis prompts improve, you can re-derive history instead of losing it.
-- **Don't copy durable artifacts**: your code and docs already live in your project folder, so the agent stores only pointers, short excerpts, and a snapshot for change detection — not copies.
+| Category | Path | Properties |
+|---|---|---|
+| **RAW** | `raw/work/<date>.json` | File delta + excerpts captured verbatim. Append-only. |
+| **RAW** | `raw/chat/<date>.md` | Interview transcript (questions + builder's answers). |
+| **RAW** | `raw/instructor/<date>.md` | Instructor note drafts (appended each sync). |
+| **DERIVED** | `log/<date>.md` | Synthesized Builder Log entry. Overwritten on re-sync. |
+| **DERIVED** | `state.json` | File snapshot + commitments + blockers + churn. Owned by `saveState`. |
+| **Config** | `config.json` | Setup (root, builder, instructor, provider, Slack). Never contains secrets. |
 
-## Extending it
+The agent stores short excerpts and file-mtime snapshots only — never full copies of the builder's project.
 
-- **A new model backend**: add an adapter function to `provider.js` and register it in `ADAPTERS`. It just needs to take a prompt string and return text.
-- **A new work-input source** (e.g. Google Drive, git commits): produce the same delta shape `observe.js` does, and feed it into `ask`.
-- **A new chat surface**: mirror `connectors/slack.js` (send a message, read messages since a timestamp) and branch on `config.chatSurface`.
+## Idempotency and re-run safety
 
-See [PLAN.md](../PLAN.md) for the roadmap.
+- **`runAsk`:** safe to re-run. If no files changed, returns `{changed:false}` without writing anything. If files changed, overwrites `raw/work/<date>.json` and `raw/chat/<date>.md`.
+- **`runSync`:** safe to re-run (same-day). Overwrites `log/<date>.md` (acceptable). On re-run, `applyExtraction` is called again on the already-updated state: resolved commitments stay resolved, open commitments get one more carried increment (not perfectly idempotent but not corrupting), and new commitments dedupe by normalized text. The file snapshot is re-committed after each sync.
+- **`saveState`:** writes valid JSON atomically via `writeFileSync`. The config POST handler deep-merges (never clobbers unrelated fields) before writing.
+
+## Extending
+
+- **New model backend:** add an adapter to `src/provider.js` and register it in `ADAPTERS`. It just needs `(prompt, opts) => Promise<string>`.
+- **New work-input source** (e.g. git commits): produce the same `{added, modified, deleted}` delta shape that `observe.js` does, and feed it into `runAsk`.
+- **New chat surface:** the three-file structure (`raw/work`, `raw/chat`, state) is the contract. Any surface that writes the answers to `raw/chat/<date>.md` and calls `runSync` will work.
+
+## Design principles
+
+See [docs/CONSTITUTION.md](CONSTITUTION.md) for the non-negotiables: zero runtime dependencies, local-first, secrets from env only, provider-agnostic `complete()` seam, record-don't-dictate / evidence-over-activity, web app as primary surface, RAW vs DERIVED split.

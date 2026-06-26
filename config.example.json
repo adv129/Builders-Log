@@ -18,13 +18,21 @@
   },
   "instructor": {
     "name": "Your Mentor's Name",
+    "preferencesSource": "default",
     "askedOn": null,
     "answeredOn": null,
-    "caresAbout": [],
-    "wantsFlaggedEarly": [],
-    "cadence": null,
-    "format": null,
-    "notUseful": null,
+    "caresAbout": [
+      "evidence of real progress, not just activity",
+      "where the builder is genuinely stuck",
+      "decisions or blockers that need mentor input"
+    ],
+    "wantsFlaggedEarly": [
+      "blockers the mentor could help unblock",
+      "being stuck on one thing across multiple cycles"
+    ],
+    "cadence": "weekly",
+    "format": "short, signal-only — a few bullets",
+    "notUseful": "activity lists with no outcome; long status essays",
     "currentGoal": null,
     "raw": null
   }

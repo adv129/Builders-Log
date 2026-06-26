@@ -1,12 +1,15 @@
 /*
- * Builder Log Agent — Slack connector.
+ * Builder Log Agent — Slack connector (src/connectors/slack.js).
  *
- * Trigger-based, NOT a daemon. The loop calls these on a trigger to send the
- * student questions / the instructor triage, and to read replies back as a
- * delta (conversations.history since a stored timestamp) — the Slack analogue
- * of the file snapshot. Bot token from env SLACK_BOT_TOKEN (never config).
+ * Ported verbatim from connectors/slack.js (legacy root location).
+ * Trigger-based, NOT a daemon. The loop calls these on a trigger to send
+ * reminders / instructor triage, and to read replies back as a delta.
+ *
+ * Bot token from env SLACK_BOT_TOKEN (never config).
  * Base URL overridable via SLACK_API_BASE so tests can use a local fake server.
  */
+
+"use strict";
 
 const BASE = process.env.SLACK_API_BASE || "https://slack.com/api";
 
