@@ -2,8 +2,6 @@
 
 **An agent that turns your daily work into a disciplined log — interviews you about what you actually built, tracks your commitments over time, and surfaces to your instructor only the few things that genuinely need them.**
 
-Built on one principle: **record, don't dictate. Evidence over activity.** It reflects what's really there — it never nags, pads, or cheerleads. It also flags when AI did the thinking that was the point.
-
 It's **provider-agnostic**: plug in Claude Code (`claude -p`, no API key), Codex, or any OpenRouter API key. And it's **local-first**: your work and logs stay on your machine; only model calls (and optional Slack messages) leave.
 
 The **primary interface is a local web app** — open it in your browser to do check-ins, review history, and change settings. No terminal interaction required after setup.
