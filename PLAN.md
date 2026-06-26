@@ -107,6 +107,9 @@ Design storage with a `builderId` namespace early so multi-tenant is config, not
   adapters behind `complete()`. ✓ (Codex unverified on this machine — CLI not installed.)
 - **Phase 4 — Instructor report:** derived from accumulated triage, shaped by their stated prefs. ← *next*
 - **Later:** trigger runtime, Drive input, multi-tenant `builderId` namespacing.
+- **Setup UX (next track, after functionality):** make first-run dead simple — an interactive
+  `node setup` wizard (provider pick, watch folder, Slack token + user IDs, mentor onboarding),
+  config validation with friendly errors, and a guided Slack-app creation flow.
 
 ## Current files
 Core: `provider.js` (claude-p · codex · openrouter) · `loop.js` (ask/sync/status/send-instructor) ·

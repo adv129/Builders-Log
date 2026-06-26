@@ -16,23 +16,34 @@ function token() {
   return t;
 }
 
-async function post(method, body) {
-  const res = await fetch(`${BASE}/${method}`, {
+// Single request path with Retry-After backoff on HTTP 429. Internal apps keep
+// Slack's normal limits, but conversations.history is strict (1/min) for
+// distributed apps — backoff keeps us correct either way.
+async function request(method, url, options, attempts = 4) {
+  for (let i = 0; ; i++) {
+    const res = await fetch(url, options);
+    if (res.status === 429 && i < attempts) {
+      const retryAfter = parseInt(res.headers.get("retry-after") || "1", 10) || 1;
+      await new Promise((r) => setTimeout(r, retryAfter * 1000));
+      continue;
+    }
+    const data = await res.json();
+    if (!data.ok) throw new Error(`slack ${method}: ${data.error || res.status}`);
+    return data;
+  }
+}
+
+function post(method, body) {
+  return request(method, `${BASE}/${method}`, {
     method: "POST",
     headers: { Authorization: `Bearer ${token()}`, "Content-Type": "application/json; charset=utf-8" },
     body: JSON.stringify(body),
   });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`slack ${method}: ${data.error || res.status}`);
-  return data;
 }
 
-async function get(method, params) {
+function get(method, params) {
   const qs = new URLSearchParams(params).toString();
-  const res = await fetch(`${BASE}/${method}?${qs}`, { headers: { Authorization: `Bearer ${token()}` } });
-  const data = await res.json();
-  if (!data.ok) throw new Error(`slack ${method}: ${data.error || res.status}`);
-  return data;
+  return request(method, `${BASE}/${method}?${qs}`, { headers: { Authorization: `Bearer ${token()}` } });
 }
 
 let _botId = null;

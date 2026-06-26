@@ -1,0 +1,35 @@
+# Builders Log — Slack app manifest
+#
+# Create the app from this file: https://api.slack.com/apps -> "Create New App"
+# -> "From a manifest" -> pick your workspace -> paste this.
+#
+# IMPORTANT: keep this an INTERNAL app — do NOT turn on "Activate Public
+# Distribution". Internal apps keep Slack's normal rate limits (50+ req/min);
+# distributed non-Marketplace apps are throttled to 1 req/min on
+# conversations.history, which would break reply polling.
+#
+# We poll for replies (conversations.history), so NO event subscriptions and
+# NO Socket Mode are needed.
+
+display_information:
+  name: Builders Log
+  description: Turns your daily work into a disciplined builder log and checks in with you.
+  background_color: "#1a1e27"
+
+features:
+  bot_user:
+    display_name: builders-log
+    always_online: false
+
+oauth_config:
+  scopes:
+    bot:
+      - chat:write    # post messages (DM the student / instructor)
+      - im:write      # open a direct message with a user
+      - im:history    # read the user's replies via conversations.history
+      # - users:read  # optional: resolve user names instead of raw IDs
+
+settings:
+  org_deploy_enabled: false
+  socket_mode_enabled: false
+  token_rotation_enabled: false

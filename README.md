@@ -173,6 +173,8 @@ Requires the `codex` CLI installed and authenticated (`codex login`). Verify wit
 
 By default the conversation happens in the terminal. Switch to Slack and the agent DMs you the questions and reads your replies back on the next run — no always-on server.
 
+> **Full walkthrough: [docs/SLACK_SETUP.md](docs/SLACK_SETUP.md)** (create the app from [`slack-app-manifest.yaml`](slack-app-manifest.yaml), install, find user IDs). One rule: keep it an **internal** app (public distribution OFF) so you stay on Slack's normal rate limits.
+
 1. Create a Slack app and a **bot token** (`xoxb-...`) with scopes: `chat:write`, `im:write`, `im:history`.
 2. Set the token in your environment:
    ```sh
@@ -226,10 +228,12 @@ Builders-Log/
 ├── onboard.js           # setup + mentor-onboarding helper
 ├── connectors/
 │   └── slack.js         # Slack send/read (used when chatSurface = "slack")
+├── slack-app-manifest.yaml  # create your Slack app from this
 ├── demo_project/        # sample work so you can try it immediately
 ├── config.example.json  # copy to config.json
 ├── .env.example         # copy to .env (secrets)
 ├── docs/ARCHITECTURE.md # how it all fits together (deeper dive)
+├── docs/SLACK_SETUP.md  # step-by-step Slack mode setup
 ├── PLAN.md              # design notes & roadmap
 └── builder-log-agent.js # the original v1 one-shot prototype (kept for reference)
 ```
