@@ -70,7 +70,7 @@ No dependencies to install — Node built-ins only.
 
 **Option A — browser onboarding (recommended):**
 ```sh
-cp config.example.json config.json
+cp config.json
 npm start
 ```
 Open the URL printed in the terminal. The web app will walk you through onboarding.
