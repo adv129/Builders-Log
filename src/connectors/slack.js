@@ -57,6 +57,14 @@ async function botUserId() {
   return _botId;
 }
 
+// Verify the bot token by calling auth.test. Returns the raw payload
+// ({ ok, team, user, user_id, team_id, url, ... }). Throws on a missing or
+// invalid token (request() rejects when data.ok is false). Used by the web UI
+// to confirm Slack is wired up before the builder relies on it.
+async function authTest() {
+  return post("auth.test", {});
+}
+
 // Open (or fetch) the DM channel with a user.
 async function openDm(userId) {
   const data = await post("conversations.open", { users: userId });
@@ -102,4 +110,4 @@ async function sendToUser(userId, text) {
   return { channel, ts };
 }
 
-module.exports = { openDm, postMessage, historySince, sendToUser, botUserId };
+module.exports = { openDm, postMessage, historySince, sendToUser, botUserId, authTest };

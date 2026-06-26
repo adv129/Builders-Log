@@ -35,7 +35,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { sendToUser, openDm, historySince } = require("./connectors/slack");
+const { sendToUser, openDm, historySince, authTest } = require("./connectors/slack");
 const { INSTRUCTOR_QUESTIONS } = require("./templates/onboard");
 const { ROOT, today } = require("./core");
 
@@ -186,6 +186,41 @@ async function collectInstructorAnswers(cfg, state) {
   return { channel, messages };
 }
 
+/**
+ * checkConnection() -> Promise<{ connected, reason?, message, team?, botUser?, botUserId? }>
+ *
+ * Non-throwing probe for the web UI: answers "is the Slack bot token wired up
+ * and valid?". Independent of chatSurface and user IDs — it only verifies the
+ * token via auth.test. Returns a structured status the UI can render directly,
+ * never throws for the expected "not set / rejected" cases.
+ */
+async function checkConnection() {
+  if (!process.env.SLACK_BOT_TOKEN) {
+    return {
+      connected: false,
+      reason: "no-token",
+      message:
+        "SLACK_BOT_TOKEN is not set. Add it to your .env file, then restart the server.",
+    };
+  }
+  try {
+    const data = await authTest();
+    return {
+      connected: true,
+      message: `Connected to ${data.team} as ${data.user}.`,
+      team: data.team,
+      botUser: data.user,
+      botUserId: data.user_id,
+    };
+  } catch (e) {
+    return {
+      connected: false,
+      reason: "auth-failed",
+      message: `Slack rejected the token: ${e.message}`,
+    };
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
@@ -195,4 +230,5 @@ module.exports = {
   sendInstructorNote,
   askInstructor,
   collectInstructorAnswers,
+  checkConnection,
 };

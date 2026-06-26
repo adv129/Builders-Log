@@ -558,64 +558,51 @@ function drawStatusPanel(container, status) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderFolderPicker(container, initialPath, onSelect) {
-  // initialPath may be null — server defaults to $HOME
   let currentPath = initialPath || null;
 
   const wrap = el("div", "folder-picker");
 
-  const pathDisplay = el("div", "folder-path", "(loading…)");
-  const dirList     = el("div", "folder-list");
-  const selDisplay  = el("div", "folder-selected",
+  const selDisplay = el("div", "folder-selected",
     currentPath ? "Current: " + currentPath : "No folder selected yet.");
   if (currentPath) selDisplay.classList.add("active");
 
-  const useBtn = el("button", "btn-primary", "Use this folder");
-  useBtn.addEventListener("click", () => {
-    onSelect(currentPath);
-    selDisplay.textContent = "Selected: " + currentPath;
-    selDisplay.classList.add("active");
-  });
-
-  wrap.appendChild(pathDisplay);
-  wrap.appendChild(dirList);
-  wrap.appendChild(selDisplay);
-  wrap.appendChild(useBtn);
-  container.appendChild(wrap);
-
-  async function loadDir(dirPath) {
-    dirList.innerHTML = "";
-    dirList.appendChild(spinner("Loading…"));
-    const url = dirPath
-      ? `/api/fs?dir=${encodeURIComponent(dirPath)}`
-      : "/api/fs";
+  // Native OS folder chooser — the local server pops the real Finder/Explorer
+  // dialog and hands back the chosen absolute path. Works on macOS and Windows.
+  const isWin = navigator.platform.indexOf("Win") === 0;
+  const browseLabel = isWin ? "Choose folder… (open Explorer)" : "Choose folder… (open Finder)";
+  const browseRow = el("div", "folder-browse-row");
+  const browseBtn = el("button", "btn-primary", browseLabel);
+  const browseStatus = el("span", "slack-action-status", "");
+  browseBtn.addEventListener("click", async () => {
+    browseBtn.disabled = true;
+    browseStatus.className = "slack-action-status";
+    browseStatus.textContent = "Opening file picker…";
     try {
-      const { path: resolved, parent, dirs } = await api("GET", url);
-      currentPath = resolved;
-      pathDisplay.textContent = resolved;
-      dirList.innerHTML = "";
-
-      if (resolved !== parent) {
-        const up = el("button", "folder-item folder-up", ".. (up)");
-        up.addEventListener("click", () => loadDir(parent));
-        dirList.appendChild(up);
+      const r = await api("GET", "/api/pick-folder");
+      if (r.path) {
+        onSelect(r.path);
+        currentPath = r.path;
+        selDisplay.textContent = "Selected: " + r.path;
+        selDisplay.classList.add("active");
+        browseStatus.textContent = "";
+      } else if (r.canceled) {
+        browseStatus.textContent = "Canceled.";
+      } else {
+        browseStatus.className = "slack-action-status warn";
+        browseStatus.textContent = r.error || "Could not open the picker.";
       }
-
-      if (!dirs.length) {
-        dirList.appendChild(el("p", "muted", "No subfolders here."));
-      }
-
-      dirs.forEach((name) => {
-        const btn = el("button", "folder-item", esc(name) + "/");
-        btn.addEventListener("click", () => loadDir(resolved + "/" + name));
-        dirList.appendChild(btn);
-      });
     } catch (e) {
-      dirList.innerHTML = "";
-      dirList.appendChild(errorBox("Could not read directory: " + e.message));
+      browseStatus.className = "slack-action-status error";
+      browseStatus.textContent = "Failed: " + e.message;
     }
-  }
+    browseBtn.disabled = false;
+  });
+  browseRow.appendChild(browseBtn);
+  browseRow.appendChild(browseStatus);
 
-  loadDir(currentPath);
+  wrap.appendChild(browseRow);
+  wrap.appendChild(selDisplay);
+  container.appendChild(wrap);
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -1160,33 +1147,139 @@ function renderSettingsForm(container, cfg, providers) {
   // ── Slack ──
   const slackSec = section("Slack (optional)");
   slackSec.appendChild(el("p", "muted",
-    "Slack settings enable reminders and instructor note delivery. Leave empty to skip."));
+    "Turn on Slack to get check-in reminders and deliver instructor notes as DMs. " +
+    "It uses your OWN Slack app and token — nothing is shared. Leave off to use the web app only."));
 
+  // Master toggle — drives chatSurface ("slack" when on, "terminal" when off).
+  const enableF = makeField("Enable Slack messaging", draft.chatSurface === "slack", { type: "checkbox" });
+  slackSec.appendChild(enableF.grp);
+
+  // Everything below is only relevant once Slack is enabled.
+  const slackDetails = el("div", "slack-details");
+
+  // Setup guide: the one-time steps, with a link out to the GitHub guide.
+  const guide = el("div", "callout");
+  guide.appendChild(el("p", "callout-title", "One-time setup"));
+  const ol = document.createElement("ol");
   [
-    { k: "chatSurface",    label: "Chat surface",             ph: "slack or terminal",   obj: draft, nested: false },
-    { k: "studentUserId",  label: "Your Slack user ID",       ph: "U0123456789",         obj: null, nested: true },
-    { k: "instructorUserId", label: "Instructor Slack user ID", ph: "U9876543210",       obj: null, nested: true },
-  ].forEach(({ k, label, ph, nested }) => {
-    const val = nested ? draft.slack?.[k] : draft[k];
-    const f = makeField(label, val, { placeholder: ph });
-    f.input.addEventListener("input", () => {
-      if (nested) {
-        if (!draft.slack) draft.slack = {};
-        draft.slack[k] = f.input.value || null;
-      } else {
-        draft[k] = f.input.value;
-      }
-    });
-    slackSec.appendChild(f.grp);
+    "Create your Slack app from the manifest and install it to your workspace.",
+    "Copy the Bot User OAuth token (starts with xoxb-).",
+    "Paste it into the Bot token field below and click Save token — it's written to your local .env, never config.",
+    "Fill in the Slack user IDs below, then save your settings.",
+  ].forEach((t) => {
+    const li = document.createElement("li");
+    li.textContent = t;
+    ol.appendChild(li);
   });
+  guide.appendChild(ol);
+  const docLink = document.createElement("a");
+  docLink.href = "https://github.com/adv129/Builders-Log/blob/main/docs/SLACK_SETUP.md";
+  docLink.target = "_blank";
+  docLink.rel = "noopener";
+  docLink.textContent = "Open the full Slack setup guide on GitHub →";
+  guide.appendChild(docLink);
+  slackDetails.appendChild(guide);
 
-  const gateF = makeField("Hold instructor messages for review", draft.slack?.gateInstructorMessages, { type: "checkbox" });
+  // Shared status line for both "Save token" and "Check connection".
+  const slackStatus = el("span", "slack-action-status", "");
+
+  // Bot token — written to .env via the server (never to config.json), then
+  // hot-loaded so no restart is needed. Left blank on load (the secret is never
+  // sent back to the browser); a saved token still works even when the box is empty.
+  const tokenF = makeField("Bot token (xoxb-…)", "", { type: "password", placeholder: "xoxb-…  (leave blank to keep current)" });
+  slackDetails.appendChild(tokenF.grp);
+
+  const tokenRow = el("div", "slack-action-row");
+  const saveTokenBtn = el("button", "btn-secondary", "Save token");
+  saveTokenBtn.addEventListener("click", async () => {
+    const token = tokenF.input.value.trim();
+    if (!token) {
+      slackStatus.className = "slack-action-status warn";
+      slackStatus.textContent = "Enter a token first (or leave blank to keep the current one).";
+      return;
+    }
+    saveTokenBtn.disabled = true;
+    slackStatus.className = "slack-action-status";
+    slackStatus.textContent = "Saving…";
+    try {
+      const r = await api("POST", "/api/slack/token", { token });
+      tokenF.input.value = ""; // don't keep the secret in the field
+      if (r.connected) {
+        slackStatus.className = "slack-action-status success";
+        slackStatus.textContent = "✓ Saved. " + r.message;
+      } else {
+        slackStatus.className = "slack-action-status warn";
+        slackStatus.textContent = "Saved, but not verified — " + r.message;
+      }
+    } catch (e) {
+      slackStatus.className = "slack-action-status error";
+      slackStatus.textContent = "Failed: " + e.message;
+    }
+    saveTokenBtn.disabled = false;
+  });
+  tokenRow.appendChild(saveTokenBtn);
+  slackDetails.appendChild(tokenRow);
+
+  // User ID fields.
+  [
+    { k: "studentUserId",    label: "Your Slack user ID",        ph: "U0123456789" },
+    { k: "instructorUserId", label: "Instructor Slack user ID",  ph: "U9876543210" },
+  ].forEach(({ k, label, ph }) => {
+    const f = makeField(label, draft.slack?.[k], { placeholder: ph });
+    f.input.addEventListener("input", () => {
+      if (!draft.slack) draft.slack = {};
+      draft.slack[k] = f.input.value || null;
+    });
+    slackDetails.appendChild(f.grp);
+  });
+  slackDetails.appendChild(el("p", "muted",
+    "To find a Slack user ID: open the profile in Slack → More (⋮) → Copy member ID."));
+
+  const gateF = makeField("Hold instructor messages for review before sending",
+    draft.slack?.gateInstructorMessages, { type: "checkbox" });
   gateF.input.addEventListener("change", () => {
     if (!draft.slack) draft.slack = {};
     draft.slack.gateInstructorMessages = gateF.input.checked;
   });
-  slackSec.appendChild(gateF.grp);
+  slackDetails.appendChild(gateF.grp);
+
+  // Connection check — re-verifies the saved token (auth.test).
+  const checkRow = el("div", "slack-action-row");
+  const checkBtn = el("button", "btn-secondary", "Check connection");
+  checkBtn.addEventListener("click", async () => {
+    checkBtn.disabled = true;
+    slackStatus.className = "slack-action-status";
+    slackStatus.textContent = "Checking…";
+    try {
+      const r = await api("GET", "/api/slack/test");
+      if (r.connected) {
+        slackStatus.className = "slack-action-status success";
+        slackStatus.textContent = "✓ " + r.message;
+      } else {
+        slackStatus.className = "slack-action-status warn";
+        slackStatus.textContent = "Not connected — " + r.message;
+      }
+    } catch (e) {
+      slackStatus.className = "slack-action-status error";
+      slackStatus.textContent = "Failed: " + e.message;
+    }
+    checkBtn.disabled = false;
+  });
+  checkRow.appendChild(checkBtn);
+  checkRow.appendChild(slackStatus);
+  slackDetails.appendChild(checkRow);
+
+  slackSec.appendChild(slackDetails);
   container.appendChild(slackSec);
+
+  // Show/hide the details and keep chatSurface in sync with the toggle.
+  function syncSlackDetails() {
+    const on = enableF.input.checked;
+    draft.chatSurface = on ? "slack" : "terminal";
+    slackDetails.style.display = on ? "" : "none";
+  }
+  enableF.input.addEventListener("change", syncSlackDetails);
+  syncSlackDetails();
 
   // ── Slack actions (only shown when chatSurface is already "slack") ──
   // Renders based on the saved cfg, not the draft being edited, so the

@@ -559,40 +559,6 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
   margin: 0.75rem 0;
 }
 
-.folder-path {
-  font-family: "SF Mono", Menlo, monospace;
-  font-size: 0.78rem;
-  color: var(--muted);
-  margin-bottom: 0.75rem;
-  word-break: break-all;
-  padding: 0.4rem 0.5rem;
-  background: var(--surface2);
-  border-radius: 3px;
-}
-
-.folder-list {
-  max-height: 220px;
-  overflow-y: auto;
-  display: flex;
-  flex-direction: column;
-  gap: 0.2rem;
-  margin-bottom: 0.75rem;
-}
-
-.folder-item {
-  text-align: left;
-  background: transparent;
-  color: var(--text);
-  font-size: 0.85rem;
-  font-family: "SF Mono", Menlo, monospace;
-  padding: 0.35rem 0.6rem;
-  border-radius: var(--radius-sm);
-  border: 1px solid transparent;
-  transition: background 0.1s, border-color 0.1s;
-}
-.folder-item:hover { background: var(--surface2); border-color: var(--border); }
-.folder-up { color: var(--muted); }
-
 .folder-selected { font-size: 0.85rem; color: var(--muted); margin: 0.5rem 0 0.75rem; }
 .folder-selected.active { color: var(--success); font-weight: 500; }
 
@@ -662,6 +628,31 @@ button:disabled { opacity: 0.5; cursor: not-allowed; }
 .slack-action-status.success { color: var(--success); }
 .slack-action-status.warn    { color: var(--warn); }
 .slack-action-status.error   { color: var(--danger); }
+
+/* ── Setup callout (Slack one-time setup guide) ──────────────────────────────── */
+
+.callout {
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 6px;
+  background: var(--surface-2, rgba(127, 127, 127, 0.06));
+  padding: 0.75rem 1rem;
+  margin: 0.75rem 0;
+  font-size: 0.9rem;
+}
+.callout-title { font-weight: 600; margin: 0 0 0.25rem; }
+.callout ol { margin: 0.25rem 0 0.5rem 1.1rem; padding: 0; }
+.callout ol li { margin: 0.15rem 0; }
+.callout a { font-size: 0.9rem; }
+
+.slack-details { margin-top: 0.5rem; }
+
+.folder-browse-row {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
 
 /* ── Misc ───────────────────────────────────────────────────────────────────── */
 

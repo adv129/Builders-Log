@@ -45,10 +45,40 @@ if (fs.existsSync(ENV_PATH)) {
   }
 }
 
+// Upsert a KEY=value line in ROOT/.env, preserving comments and other vars.
+// Pass value == null / "" to remove the key. Writes the file 0600 (it holds
+// secrets) and updates process.env immediately so changes take effect without
+// a restart. Never logs the value.
+function upsertEnvVar(key, value) {
+  const remove = value == null || value === "";
+  const prefix = `${key}=`;
+  let lines = [];
+  if (fs.existsSync(ENV_PATH)) {
+    lines = fs.readFileSync(ENV_PATH, "utf8").split(/\r?\n/);
+  }
+  let found = false;
+  const out = [];
+  for (const line of lines) {
+    if (line.trim().startsWith(prefix)) {
+      found = true;
+      if (!remove) out.push(`${key}=${value}`);
+      continue; // when removing, drop the old line
+    }
+    out.push(line);
+  }
+  if (!found && !remove) out.push(`${key}=${value}`);
+  let text = out.join("\n").replace(/\n+$/, "\n");
+  if (!text.endsWith("\n")) text += "\n";
+  fs.writeFileSync(ENV_PATH, text, { mode: 0o600 });
+  try { fs.chmodSync(ENV_PATH, 0o600); } catch { /* best effort */ }
+  if (remove) delete process.env[key];
+  else process.env[key] = value;
+}
+
 // ─── Core requires ────────────────────────────────────────────────────────────
 
 const http = require("http");
-const { spawn } = require("child_process");
+const { spawn, execFile } = require("child_process");
 
 const core = require("./core");
 const { instructorDoc } = require("./templates/onboard");
@@ -112,6 +142,66 @@ function readBody(req) {
     req.on("end", () => resolve(data));
     req.on("error", reject);
   });
+}
+
+/** Promisified execFile that resolves { stdout, stderr, code } instead of throwing. */
+function run(cmd, args) {
+  return new Promise((resolve) => {
+    execFile(cmd, args, { timeout: 5 * 60 * 1000 }, (err, stdout, stderr) => {
+      resolve({
+        stdout: stdout || "",
+        stderr: stderr || "",
+        code: err && typeof err.code === "number" ? err.code : err ? 1 : 0,
+        spawnErr: err && err.code === "ENOENT" ? err : null,
+      });
+    });
+  });
+}
+
+/**
+ * Open the OS-native folder chooser and resolve the selected absolute path.
+ * Works because the server runs on the user's own machine (127.0.0.1).
+ * Returns { path } on choose, { canceled: true } if dismissed, or
+ * { error } if no native picker is available on this platform.
+ *
+ *   macOS   → osascript `choose folder`
+ *   Linux   → zenity, falling back to kdialog
+ *   Windows → PowerShell FolderBrowserDialog
+ */
+async function pickFolderNative() {
+  const platform = process.platform;
+
+  if (platform === "darwin") {
+    const script =
+      'POSIX path of (choose folder with prompt "Select the folder Builder Log should watch" ' +
+      "default location (path to home folder))";
+    const { stdout, stderr, code } = await run("osascript", ["-e", script]);
+    if (code === 0) return { path: stdout.trim().replace(/\/+$/, "") };
+    if (/-128|User canceled/i.test(stderr)) return { canceled: true };
+    return { error: stderr.trim() || "folder picker failed" };
+  }
+
+  if (platform === "linux") {
+    let r = await run("zenity", ["--file-selection", "--directory", "--title", "Select the folder Builder Log should watch"]);
+    if (r.spawnErr) {
+      r = await run("kdialog", ["--getexistingdirectory", process.env.HOME || "/"]);
+      if (r.spawnErr) return { error: "no native folder picker found (install zenity or kdialog)" };
+    }
+    if (r.code === 0 && r.stdout.trim()) return { path: r.stdout.trim().replace(/\/+$/, "") };
+    return { canceled: true }; // zenity/kdialog exit non-zero on cancel
+  }
+
+  if (platform === "win32") {
+    const ps =
+      "Add-Type -AssemblyName System.Windows.Forms; " +
+      "$d = New-Object System.Windows.Forms.FolderBrowserDialog; " +
+      "if ($d.ShowDialog() -eq 'OK') { [Console]::Out.Write($d.SelectedPath) }";
+    const { stdout } = await run("powershell", ["-NoProfile", "-STA", "-Command", ps]);
+    if (stdout.trim()) return { path: stdout.trim() };
+    return { canceled: true };
+  }
+
+  return { error: `native folder picker not supported on ${platform}` };
 }
 
 /**
@@ -297,25 +387,17 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // GET /api/fs?dir=<path> — folder picker helper
-  if (req.method === "GET" && pathname === "/api/fs") {
-    const dirParam = url.searchParams.get("dir") || process.env.HOME || "/";
-    const resolved = path.resolve(dirParam);
-    const parent = path.dirname(resolved);
-
-    let dirs = [];
+  // GET /api/pick-folder — open the OS-native folder chooser (Finder/Explorer/
+  // file dialog) and return the selected absolute path. Blocks until the user
+  // picks or cancels. Only meaningful because the server runs on the user's
+  // own machine. Returns { path } | { canceled: true } | { error }.
+  if (req.method === "GET" && pathname === "/api/pick-folder") {
     try {
-      const entries = fs.readdirSync(resolved, { withFileTypes: true });
-      dirs = entries
-        .filter((e) => e.isDirectory())
-        .map((e) => e.name)
-        .sort();
+      const result = await pickFolderNative();
+      json(res, 200, result);
     } catch (e) {
-      apiError(res, 400, `cannot read directory: ${e.message}`);
-      return;
+      if (!res.headersSent) apiError(res, 500, e.message);
     }
-
-    json(res, 200, { path: resolved, parent, dirs });
     return;
   }
 
@@ -451,6 +533,48 @@ async function handleRequest(req, res) {
     try {
       const result = await slackActions.sendInstructorNote(cfg, { date: body.date });
       json(res, 200, result);
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // GET /api/slack/test — verify the Slack bot token works (auth.test).
+  // Non-throwing at the action layer: returns { connected, message, ... } so
+  // the Settings UI can render a friendly status without a 500.
+  if (req.method === "GET" && pathname === "/api/slack/test") {
+    try {
+      const result = await slackActions.checkConnection();
+      json(res, 200, result);
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // POST /api/slack/token — save the Slack bot token to .env and hot-load it.
+  // Body: { token }. An empty/missing token removes it. The token is written to
+  // .env (NEVER config.json), the file is chmod 0600, and process.env is updated
+  // in place so no restart is needed. The token is never echoed back. Safe only
+  // because this server is bound to 127.0.0.1 (single user, local machine).
+  if (req.method === "POST" && pathname === "/api/slack/token") {
+    let body;
+    try {
+      body = JSON.parse(await readBody(req));
+    } catch {
+      apiError(res, 400, "invalid JSON");
+      return;
+    }
+    const token = typeof body.token === "string" ? body.token.trim() : "";
+    try {
+      upsertEnvVar("SLACK_BOT_TOKEN", token || null);
+      if (!token) {
+        json(res, 200, { saved: true, connected: false, reason: "no-token", message: "Slack token removed." });
+        return;
+      }
+      // Saved — immediately verify so the UI can confirm in one step.
+      const result = await slackActions.checkConnection();
+      json(res, 200, { saved: true, ...result });
     } catch (e) {
       if (!res.headersSent) apiError(res, 500, e.message);
     }
