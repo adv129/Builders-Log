@@ -13,6 +13,7 @@ The **primary interface is a local web app** — open it in your browser to do c
 - [Quick start](#quick-start)
 - [Power users / CLI](#power-users--cli)
 - [Choosing your LLM provider](#choosing-your-llm-provider)
+- [Editing the agent's prompts](#editing-the-agents-prompts)
 - [Slack (optional)](#slack-optional)
 - [Where your data lives](#where-your-data-lives)
 - [Project layout](#project-layout)
@@ -70,10 +71,9 @@ No dependencies to install — Node built-ins only.
 
 **Option A — browser onboarding (recommended):**
 ```sh
-cp config.json
 npm start
 ```
-Open the URL printed in the terminal. The web app will walk you through onboarding.
+Open the URL printed in the terminal. The web app writes `config.json` for you and walks you through onboarding (provider, watch folder, builder info) — no file editing needed.
 
 **Option B — edit manually:**
 ```sh
@@ -82,6 +82,7 @@ cp config.example.json config.json
 Open `config.json` and set at minimum:
 - `"root"` — the folder to watch (your project). The example points at `./demo_project` so you can try it immediately.
 - `"builder.name"` and `"builder.project"` — who you are and what you're building.
+- `"instructor.name"` — your mentor's name (required to finish setup).
 
 ### 3. Start the web app
 ```sh
@@ -152,6 +153,18 @@ Switch providers anytime in Settings in the web app or by editing `config.json`.
 
 ---
 
+## Editing the agent's prompts
+
+Open **Settings → Prompts (advanced)** in the web app to steer how the agent is instructed. Three things are editable (each with a **Reset to default**):
+
+- **Agent voice & principles** — the standing preamble prepended to every model call (the agent's identity and tone).
+- **Interview guidance** — what the check-in questions should surface.
+- **Entry synthesis guidance** *(optional)* — extra steering for the written entry.
+
+Edits save to `config.prompts` and fall back to the defaults when left blank. Some things stay **locked** on purpose so nothing breaks: the strict-JSON fact-extraction schema (the app parses it to track your commitments and blockers), output formats, and the entry's section headers.
+
+---
+
 ## Slack (optional)
 
 By default the check-in happens entirely in the web app. Enable Slack for two things:
@@ -161,13 +174,10 @@ By default the check-in happens entirely in the web app. Enable Slack for two th
 
 > **Full walkthrough: [docs/SLACK_SETUP.md](docs/SLACK_SETUP.md)** (create the app from [`slack-app-manifest.yaml`](slack-app-manifest.yaml), install, find user IDs). Rule: keep it **internal** (public distribution OFF) so you stay on Slack's normal rate limits.
 
-1. Create a Slack app, get a bot token (`xoxb-...`) with scopes: `chat:write`, `im:write`, `im:history`.
-2. Add to `.env`:
-   ```
-   SLACK_BOT_TOKEN=xoxb-...
-   ```
-3. In the web app Settings, set `chatSurface: "slack"` and fill in `studentUserId` and `instructorUserId`.
-4. Use the "Send reminder" and "Send to instructor" buttons in the web app.
+1. Create your own Slack app, get a bot token (`xoxb-...`) with scopes: `chat:write`, `im:write`, `im:history`.
+2. In the web app, open **Settings → Slack**, turn on "Enable Slack messaging", and paste the token into **Bot token → Save token**. It's written to your local `.env` and applied immediately (no restart). *(Prefer the shell? Add `SLACK_BOT_TOKEN=xoxb-...` to `.env` by hand instead — the token is never stored in `config.json`.)*
+3. In the same Settings panel, fill in your `studentUserId` and `instructorUserId`, then **Check connection** to confirm.
+4. Use the **Send reminder** and **Send to instructor** buttons in the web app.
 
 ---
 
@@ -224,7 +234,6 @@ Builders-Log/
 ├── docs/
 │   ├── ARCHITECTURE.md      how the pieces fit
 │   ├── CONSTITUTION.md      non-negotiables + fixed stack
-│   ├── REMAKE_PLAN.md       the greenfield rewrite plan
 │   ├── SLACK_SETUP.md       step-by-step Slack mode setup
 │   └── research/
 │       └── claude-cli.md    empirical findings on AI-CLI integration
@@ -241,7 +250,7 @@ Builders-Log/
 
 - **Your work and logs never leave your machine** — except text sent to your chosen model provider per call, and (if enabled) Slack messages you explicitly trigger.
 - **Secrets are read only from environment variables** (`OPENROUTER_API_KEY`, `SLACK_BOT_TOKEN`) and the git-ignored `.env` — never stored in `config.json` or committed.
-- **Messages to your instructor are gated by default** — the agent drafts; you approve before anything is sent. Set `gateInstructorMessages: false` to auto-send.
+- **Messages to your instructor are gated by default** — the agent drafts; you approve before anything is sent. Set `slack.gateInstructorMessages: false` to auto-send.
 - `config.json` and `state.json` are git-ignored.
 - The web server binds to `127.0.0.1` only — it is never accessible from the network.
 

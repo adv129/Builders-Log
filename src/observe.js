@@ -41,7 +41,6 @@ const AGENT_FILES = new Set([
   "config.example.json",
   "state.json",
   "package.json",
-  "PLAN.md",
   "README.md",
   "INSTRUCTOR_ONBOARDING.md",
   "slack-app-manifest.yaml",

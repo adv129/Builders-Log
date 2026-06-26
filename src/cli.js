@@ -153,7 +153,7 @@ function cmdStatus(cfg, state) {
   const cfg = loadConfig();
   if (!validate(cfg)) return;
 
-  // Apply defaults that loop.js applied before dispatching.
+  // Apply config defaults before dispatching.
   cfg.provider = cfg.provider || "claude-p";
   cfg.chatSurface = cfg.chatSurface || "terminal";
 
