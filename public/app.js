@@ -578,9 +578,10 @@ function drawWeekPanel(root) {
     const d = st.data || {};
     const panel = el("div", "screen week-panel");
 
-    const head = el("div", "week-head");
-    head.appendChild(el("h1", null, "This week"));
-    panel.appendChild(head);
+    // Mirror the daily check-in header: h1 + screen-desc subtitle.
+    panel.appendChild(el("h1", null, "This week"));
+    panel.appendChild(el("p", "screen-desc",
+      "Your objectives for the week — set them yourself, or pull them from your instructor over Slack."));
 
     if (st.error) panel.appendChild(errorBox(st.error));
 
@@ -615,6 +616,7 @@ function drawWeekPanel(root) {
 
     const objs = d.objectives || [];
     if (objs.length) {
+      panel.appendChild(el("div", "section-label", "Objectives"));
       panel.appendChild(bulletList("week-objectives", objs, (o) => (o.done ? "✓ " : "• ") + o.text));
     } else if (!d.awaitingInstructor) {
       panel.appendChild(el("p", "muted", "No objectives set for this week yet."));

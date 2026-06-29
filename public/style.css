@@ -513,13 +513,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .commitment-text.done { color: var(--muted); text-decoration: line-through; }
 
 /* ── "This week" panel (check-in screen) ── */
-.week-panel { margin-top: 1.25rem; }
-.week-head {
-  display: flex;
-  align-items: baseline;
-  gap: 0.6rem;
-  flex-wrap: wrap;
-}
+.week-panel { margin-top: 2.5rem; }
 .week-objectives,
 .week-progress,
 .week-blockers,
@@ -542,12 +536,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   border-radius: var(--radius-sm);
 }
 .week-objectives li.done { color: var(--muted); text-decoration: line-through; }
+/* Same spacing as the daily check-in's .generate-row for a cohesive feel. */
 .week-actions {
   display: flex;
-  gap: 0.5rem;
+  gap: 1rem;
   flex-wrap: wrap;
   align-items: center;
-  margin-top: 0.5rem;
+  margin-top: 1.5rem;
 }
 
 /* Confirm-before-override warning (auto-dismisses after 5s). */
