@@ -823,7 +823,7 @@ function renderOnboard(container) {
     ),
   };
 
-  const STEPS = ["Provider", "Watch folder", "Builder info", "Instructor", "Review & save"];
+  const STEPS = ["Provider", "Watch folder", "Builder info", "Instructor", "Review & save", "Project plan"];
 
   function draw() {
     container.innerHTML = "";
@@ -846,6 +846,7 @@ function renderOnboard(container) {
     else if (step === 2) renderStepBuilder(body);
     else if (step === 3) renderStepInstructor(body);
     else if (step === 4) renderStepReview(body);
+    else if (step === 5) renderStepProjectPlan(body);
     screen.appendChild(body);
 
     container.appendChild(screen);
@@ -1115,9 +1116,10 @@ function renderOnboard(container) {
           return;
         }
 
+        // Config is saved — show the full nav and move to the project-plan step,
+        // which generates/copies against the now-saved config.
         buildNav(true);
-        navigate("#/checkin");
-        handleRoute();
+        nav(1);
       } catch (e) {
         errBox.appendChild(errorBox("Save failed: " + e.message));
         save.disabled = false;
@@ -1125,6 +1127,107 @@ function renderOnboard(container) {
       }
     });
     navRow.appendChild(save);
+    body.appendChild(navRow);
+  }
+
+  // ── Step 5 — Project plan (runs after the config is saved) ──
+  function renderStepProjectPlan(body) {
+    body.appendChild(el("h2", null, "Your project plan"));
+    body.appendChild(el("p", "muted",
+      "The high-level overview the agent works from (it refreshes weekly, not daily). " +
+      "Generate it now, copy a prompt to create it elsewhere, or skip and do it later in Settings."));
+
+    // Greenfield vs existing.
+    let mode = "existing";
+    const modeWrap = el("div", "field-group");
+    modeWrap.appendChild(el("label", "field-label", "Starting fresh, or mapping existing work?"));
+    const modeList = el("div", "provider-list");
+    [
+      ["existing", "I have existing work in this folder — map it"],
+      ["scaffold", "I'm starting fresh — propose a structure"],
+    ].forEach(([val, label]) => {
+      const lbl = document.createElement("label");
+      lbl.className = "provider-option" + (mode === val ? " selected" : "");
+      const radio = document.createElement("input");
+      radio.type = "radio";
+      radio.name = "pp-mode";
+      radio.value = val;
+      radio.checked = mode === val;
+      radio.addEventListener("change", () => {
+        mode = val;
+        modeList.querySelectorAll(".provider-option").forEach((e) => e.classList.remove("selected"));
+        lbl.classList.add("selected");
+      });
+      lbl.appendChild(radio);
+      lbl.appendChild(el("span", "provider-label", label));
+      modeList.appendChild(lbl);
+    });
+    modeWrap.appendChild(modeList);
+    body.appendChild(modeWrap);
+
+    const ta = el("textarea", "field-input prompt-input");
+    ta.rows = 10;
+    ta.placeholder = "# Project Plan — …";
+
+    const actions = el("div", "week-actions");
+    const genBtn = el("button", "btn-primary", "Generate with agent");
+    const copyBtn = el("button", "btn-ghost");
+    copyBtn.title = "Copy a prompt to (re)create the project plan in the correct format";
+    copyBtn.innerHTML = COPY_ICON_SVG + " Copy prompt";
+    const status = el("span", "slack-action-status", "");
+    actions.appendChild(genBtn);
+    actions.appendChild(copyBtn);
+    actions.appendChild(status);
+
+    let promptText = "";
+    api("GET", "/api/plan/project")
+      .then((r) => { if (r.markdown) ta.value = r.markdown; promptText = r.prompt || ""; })
+      .catch(() => {});
+
+    genBtn.addEventListener("click", async () => {
+      genBtn.disabled = true;
+      status.className = "slack-action-status";
+      status.textContent = "Generating…";
+      try {
+        const r = await api("POST", "/api/plan/project/generate", { mode });
+        ta.value = r.markdown || "";
+        status.className = "slack-action-status success";
+        status.textContent = "Generated.";
+      } catch (e) {
+        status.className = "slack-action-status error";
+        status.textContent = "Failed: " + e.message;
+      }
+      genBtn.disabled = false;
+    });
+    copyBtn.addEventListener("click", async () => {
+      try {
+        await navigator.clipboard.writeText(promptText || "");
+        copyBtn.innerHTML = COPY_ICON_SVG + " Copied!";
+        setTimeout(() => { copyBtn.innerHTML = COPY_ICON_SVG + " Copy prompt"; }, 1500);
+      } catch {
+        status.className = "slack-action-status warn";
+        status.textContent = "Clipboard blocked — prompt logged to console.";
+        console.log(promptText);
+      }
+    });
+
+    body.appendChild(ta);
+    body.appendChild(actions);
+
+    const navRow = el("div", "wizard-nav");
+    const finish = el("button", "btn-primary", "Finish");
+    finish.addEventListener("click", async () => {
+      finish.disabled = true;
+      finish.textContent = "Saving…";
+      try {
+        if (ta.value.trim()) await api("POST", "/api/plan/project", { markdown: ta.value });
+      } catch {
+        // Non-fatal — the plan can still be edited later in Settings.
+      }
+      navigate("#/checkin");
+      handleRoute();
+    });
+    navRow.appendChild(finish);
     body.appendChild(navRow);
   }
 
@@ -1276,31 +1379,82 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
   provSec.appendChild(orModelRow);
   container.appendChild(provSec);
 
-  // ── Watch folder ──
-  const folderSec = section("Watch folder");
-  const folderDisplay = el("div", "folder-selected" + (draft.root ? " active" : ""),
-    draft.root ? "Current: " + esc(draft.root) : "(not set)");
-  folderSec.appendChild(folderDisplay);
+  // ── Tracked folders (roots registry) ──
+  const folderSec = section("Tracked folders");
+  folderSec.appendChild(el("p", "muted",
+    "Folders Builder Log scans for changes. Add as many as you like — work can live " +
+    "in more than one place. The first one is the primary folder."));
 
-  let pickerShown = false;
-  const pickerWrap = el("div");
-  pickerWrap.style.display = "none";
+  if (!Array.isArray(draft.roots)) {
+    draft.roots = draft.root
+      ? [{ id: "r1", type: "local", path: draft.root, label: baseName(draft.root), summary: "" }]
+      : [];
+  }
 
-  const toggleBtn = el("button", "btn-ghost", "Change folder");
-  toggleBtn.addEventListener("click", () => {
-    pickerShown = !pickerShown;
-    pickerWrap.style.display = pickerShown ? "block" : "none";
-    if (pickerShown && !pickerWrap.children.length) {
-      renderFolderPicker(pickerWrap, draft.root, (p) => {
-        draft.root = p;
-        folderDisplay.textContent = "Current: " + p;
-        folderDisplay.classList.add("active");
+  function baseName(p) {
+    return String(p || "").replace(/\/+$/, "").split("/").pop() || String(p || "");
+  }
+  function nextRootId() {
+    let max = 0;
+    draft.roots.forEach((r) => { const m = /^r(\d+)$/.exec(r.id || ""); if (m) max = Math.max(max, +m[1]); });
+    return "r" + (max + 1);
+  }
+  function syncPrimaryRoot() {
+    draft.root = draft.roots[0] ? draft.roots[0].path : draft.root;
+  }
+
+  const rootsList = el("div", "roots-list");
+  folderSec.appendChild(rootsList);
+
+  function drawRoots() {
+    rootsList.innerHTML = "";
+    if (!draft.roots.length) {
+      rootsList.appendChild(el("p", "muted", "No folders yet. Add one below."));
+    }
+    draft.roots.forEach((r, i) => {
+      const item = el("div", "root-item");
+      const top = el("div", "root-item-top");
+      const pathSpan = el("span", "root-path", esc(r.path));
+      if (i === 0) pathSpan.appendChild(el("span", "badge-rec", "primary"));
+      top.appendChild(pathSpan);
+      const rm = el("button", "btn-ghost", "Remove");
+      rm.addEventListener("click", () => { draft.roots.splice(i, 1); syncPrimaryRoot(); drawRoots(); });
+      top.appendChild(rm);
+      item.appendChild(top);
+
+      const lblField = makeField("Label", r.label, { placeholder: baseName(r.path) });
+      lblField.input.addEventListener("input", () => { r.label = lblField.input.value; });
+      item.appendChild(lblField.grp);
+
+      const sumField = makeField("What's here (optional)", r.summary,
+        { textarea: true, rows: 2, placeholder: "e.g. the web dashboard frontend" });
+      sumField.input.addEventListener("input", () => { r.summary = sumField.input.value; });
+      item.appendChild(sumField.grp);
+
+      rootsList.appendChild(item);
+    });
+  }
+  drawRoots();
+
+  const addWrap = el("div");
+  addWrap.style.display = "none";
+  const addBtn = el("button", "btn-ghost", "Add folder");
+  addBtn.addEventListener("click", () => {
+    const shown = addWrap.style.display !== "none";
+    addWrap.style.display = shown ? "none" : "block";
+    addBtn.textContent = shown ? "Add folder" : "Hide picker";
+    if (!shown && !addWrap.children.length) {
+      renderFolderPicker(addWrap, null, (p) => {
+        if (p && !draft.roots.some((r) => r.path === p)) {
+          draft.roots.push({ id: nextRootId(), type: "local", path: p, label: baseName(p), summary: "" });
+          syncPrimaryRoot();
+          drawRoots();
+        }
       });
     }
-    toggleBtn.textContent = pickerShown ? "Hide folder picker" : "Change folder";
   });
-  folderSec.appendChild(toggleBtn);
-  folderSec.appendChild(pickerWrap);
+  folderSec.appendChild(addBtn);
+  folderSec.appendChild(addWrap);
   container.appendChild(folderSec);
 
   // ── Builder ──
