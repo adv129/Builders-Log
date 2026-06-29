@@ -688,13 +688,14 @@ function drawWeekPanel(root) {
 function renderHistory(container) {
   container.innerHTML = "";
   const screen = el("div", "screen history-screen");
-  screen.appendChild(el("h1", null, "History & Status"));
+  screen.appendChild(el("h1", null, "History"));
 
   const layout = el("div", "history-layout");
 
-  // Status panel
+  // Project-plan panel (read-only). Live weekly state (objectives/blockers)
+  // lives on the Check-in screen — History is past entries + the project plan.
   const statusPanel = el("div", "status-panel");
-  statusPanel.appendChild(spinner("Loading status…"));
+  statusPanel.appendChild(spinner("Loading…"));
   layout.appendChild(statusPanel);
 
   // Logs panel
@@ -713,11 +714,11 @@ function renderHistory(container) {
   screen.appendChild(layout);
   container.appendChild(screen);
 
-  // Fetch in parallel — the weekly plan is the source of truth now.
-  Promise.all([api("GET", "/api/week"), api("GET", "/api/plan/project"), api("GET", "/api/logs")])
-    .then(([week, project, logs]) => {
+  // Fetch in parallel — History shows the project plan + the past entries.
+  Promise.all([api("GET", "/api/plan/project"), api("GET", "/api/logs")])
+    .then(([project, logs]) => {
       statusPanel.innerHTML = "";
-      drawWeekStatus(statusPanel, week, project);
+      drawProjectPanel(statusPanel, project);
 
       logsList.innerHTML = "";
       if (!logs.length) {
@@ -733,67 +734,18 @@ function renderHistory(container) {
     })
     .catch((e) => {
       statusPanel.innerHTML = "";
-      statusPanel.appendChild(errorBox("Failed to load status: " + e.message));
+      statusPanel.appendChild(errorBox("Failed to load: " + e.message));
     });
 
-  function drawWeekStatus(panel, week, project) {
-    const objs = (week.objectives || []);
-    const done = objs.filter((o) => o.done).length;
-
-    const hdr = el("div", "status-header");
-    [
-      [objs.length, "objectives"],
-      [done, "done"],
-      [(week.blockers || []).length, "blockers"],
-    ].forEach(([n, label]) => {
-      const stat = el("div", "status-stat");
-      stat.appendChild(el("span", "stat-n", String(n)));
-      stat.appendChild(el("span", "stat-label", label));
-      hdr.appendChild(stat);
-    });
-    panel.appendChild(hdr);
-
-    if (objs.length) {
-      const sec = el("div", "status-section");
-      sec.appendChild(el("h3", null, "Objectives"));
-      objs.forEach((o) => {
-        const item = el("div", "commitment-item");
-        item.appendChild(el("p", o.done ? "commitment-text done" : "commitment-text",
-          (o.done ? "✓ " : "• ") + esc(o.text)));
-        sec.appendChild(item);
-      });
-      panel.appendChild(sec);
-    }
-
-    if ((week.blockers || []).length) {
-      const sec = el("div", "status-section");
-      sec.appendChild(el("h3", null, "Blockers"));
-      week.blockers.forEach((b) => {
-        const item = el("div", "blocker-item");
-        item.appendChild(el("p", "blocker-text", esc(b.text)));
-        if (b.count > 1 || b.since) {
-          item.appendChild(el("p", "muted",
-            `Seen ${b.count}x${b.since ? ` · since ${esc(b.since)}` : ""}`));
-        }
-        sec.appendChild(item);
-      });
-      panel.appendChild(sec);
-    }
-
+  function drawProjectPanel(panel, project) {
+    panel.appendChild(el("h2", null, "Project plan"));
     if (project && project.markdown && project.markdown.trim()) {
-      const sec = el("div", "status-section");
-      const det = el("details", "project-plan-disclosure");
-      det.appendChild(el("summary", null, "Project plan"));
       const body = el("div", "markdown-body");
       body.innerHTML = renderMarkdown(project.markdown);
-      det.appendChild(body);
-      sec.appendChild(det);
-      panel.appendChild(sec);
-    }
-
-    if (!objs.length && !(week.blockers || []).length) {
+      panel.appendChild(body);
+    } else {
       panel.appendChild(el("p", "muted",
-        "No objectives set yet. Set this week's priorities on the Check-in screen."));
+        "No project plan yet. Generate or edit it in Settings → Plans."));
     }
   }
 
