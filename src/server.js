@@ -693,9 +693,11 @@ async function handleRequest(req, res) {
     if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
     const state = core.loadState();
     try {
+      // Intake EVERY instructor message since the ask (people often split their
+      // reply across multiple messages), oldest-first, parsed as one list.
       const { messages } = await slackActions.collectObjectiveReplies(cfg, state);
-      const latest = messages.length ? messages[messages.length - 1] : null;
-      const items = latest ? core.plan.parseObjectiveReply(latest.text) : [];
+      const text = messages.map((m) => m.text).filter(Boolean).join("\n").trim();
+      const items = text ? core.plan.parseObjectiveReply(text) : [];
       if (!items.length) { json(res, 200, { collected: false }); return; }
       const weekOf = core.plan.mondayOf(core.today());
       core.plan.mergeIntoWeeklyPlan(weekOf, { setObjectives: items, date: core.today() });
