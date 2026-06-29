@@ -13,12 +13,17 @@
  *     Returns { ok, channel, ts }.
  *     Throws if chatSurface !== "slack", studentUserId or token missing.
  *
- *   async sendInstructorNote(cfg, { date })
- *     Read the instructor draft for `date` from raw/instructor/<date>.md
- *     (the "Draft for instructor (outbound)" section) and DM it to the
- *     instructor (cfg.slack.instructorUserId).
+ *   async sendInstructorNote(cfg, { date, text })
+ *     DM the instructor (cfg.slack.instructorUserId) the note for `date`. Uses
+ *     `text` when provided (the student-edited note); otherwise reads the latest
+ *     "Draft for instructor (outbound)" section from raw/instructor/<date>.md.
+ *     Records what was sent ("## Sent to instructor" section, append-only).
  *     Returns { ok, channel, ts } or { ok: false, reason: "nothing to send" }.
  *     Throws if chatSurface !== "slack", instructorUserId or token missing.
+ *
+ *   async collectInstructorFeedback(cfg, state)
+ *     Read instructor replies since state.slack.instructorNoteTs — the return
+ *     leg of the sync loop. Returns { channel, messages } only.
  *
  *   async askInstructor(cfg)                  [future — not wired to UI yet]
  *     DM the 6 INSTRUCTOR_QUESTIONS to the instructor.
@@ -111,24 +116,36 @@ async function sendReminder(cfg, { appUrl }) {
  * DM it to the instructor. Returns { ok: false, reason } if there's nothing
  * to send (no file, or empty draft section).
  */
-async function sendInstructorNote(cfg, { date } = {}) {
+async function sendInstructorNote(cfg, { date, text: override } = {}) {
   const userId = requireSlack(cfg, "instructorUserId");
 
   const targetDate = date || today();
   const filePath = path.join(ROOT, "raw", "instructor", `${targetDate}.md`);
 
-  let content;
-  try {
-    content = fs.readFileSync(filePath, "utf8");
-  } catch {
-    return { ok: false, reason: "nothing to send" };
+  // Prefer an explicit (student-edited) note; fall back to the latest drafted
+  // section on disk. This is what lets the builder correct/soften the note
+  // before it reaches a real person.
+  let draft = (typeof override === "string" && override.trim()) ? override.trim() : null;
+  if (!draft) {
+    let content;
+    try {
+      content = fs.readFileSync(filePath, "utf8");
+    } catch {
+      return { ok: false, reason: "nothing to send" };
+    }
+    draft = extractLatestDraft(content);
   }
-
-  const draft = extractLatestDraft(content);
   if (!draft) return { ok: false, reason: "nothing to send" };
 
+  // Record exactly what was sent (audit trail; also lets History show sent vs
+  // draft-only). Append-only — never rewrites the original draft section.
+  try {
+    fs.appendFileSync(filePath, `\n## Sent to instructor — ${targetDate}\n${draft}\n`);
+  } catch {
+    // Non-fatal: the message still sends even if the audit append fails.
+  }
+
   const builderName = (cfg.builder && cfg.builder.name) || "your builder";
-  const instructorName = (cfg.instructor && cfg.instructor.name) || "Instructor";
 
   const text =
     `Builder Log update for ${targetDate} — from ${builderName}:\n\n` +
@@ -138,6 +155,24 @@ async function sendInstructorNote(cfg, { date } = {}) {
 
   const { channel, ts } = await sendToUser(userId, text);
   return { ok: true, channel, ts };
+}
+
+/**
+ * collectInstructorFeedback(cfg, state) -> Promise<{ channel, messages }>
+ *
+ * Read the instructor's replies since state.slack.instructorNoteTs (set when the
+ * last note was sent). This is the return leg of the sync loop — the mentor's
+ * feedback coming back into the app. Returns messages only; the caller stores
+ * them and folds them into the instructor thread.
+ */
+async function collectInstructorFeedback(cfg, state) {
+  const userId = requireSlack(cfg, "instructorUserId");
+
+  const channel = await openDm(userId);
+  const since = (state.slack && state.slack.instructorNoteTs) || "0";
+  const messages = await historySince(channel, since);
+
+  return { channel, messages };
 }
 
 /**
@@ -307,6 +342,7 @@ async function checkConnection() {
 module.exports = {
   sendReminder,
   sendInstructorNote,
+  collectInstructorFeedback,
   askInstructor,
   collectInstructorAnswers,
   askInstructorObjectives,

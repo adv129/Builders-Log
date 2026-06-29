@@ -367,53 +367,9 @@ function renderCheckin(container) {
       entryWrap.appendChild(entryBody);
       screen.appendChild(entryWrap);
 
-      // Instructor draft
-      if (r.instructorDraft) {
-        const draftWrap = el("div", "draft-wrap");
-        const labelEl = el("div", "section-label");
-        labelEl.appendChild(document.createTextNode("Instructor note "));
-        if (r.gated) {
-          labelEl.appendChild(el("span", "badge-gated", "draft — not sent"));
-        } else {
-          labelEl.appendChild(el("span", "badge-sent", "sent"));
-        }
-        draftWrap.appendChild(labelEl);
-        const draftBody = el("div", "markdown-body");
-        draftBody.innerHTML = renderMarkdown(r.instructorDraft || "");
-        draftWrap.appendChild(draftBody);
-        screen.appendChild(draftWrap);
-
-        // Slack delivery button — only shown when chatSurface is "slack" and the
-        // note is gated (needs manual approval before sending).
-        if (r.gated && appConfig && appConfig.chatSurface === "slack") {
-          const actionRow = el("div", "slack-action-row");
-          const sendBtn = el("button", "btn-secondary", "Send note to instructor via Slack");
-          const statusEl = el("span", "slack-action-status", "");
-          sendBtn.addEventListener("click", async () => {
-            sendBtn.disabled = true;
-            statusEl.className = "slack-action-status";
-            statusEl.textContent = "Sending…";
-            try {
-              const result = await api("POST", "/api/send-instructor", { date: r.date });
-              if (result.ok) {
-                statusEl.className = "slack-action-status success";
-                statusEl.textContent = "Sent to instructor.";
-              } else {
-                statusEl.className = "slack-action-status warn";
-                statusEl.textContent = result.reason || "Nothing to send.";
-                sendBtn.disabled = false;
-              }
-            } catch (e) {
-              statusEl.className = "slack-action-status error";
-              statusEl.textContent = "Failed: " + e.message;
-              sendBtn.disabled = false;
-            }
-          });
-          actionRow.appendChild(sendBtn);
-          actionRow.appendChild(statusEl);
-          screen.appendChild(actionRow);
-        }
-      }
+      // Instructor note — editable before it reaches a real person, then sent
+      // over Slack with the reply pulled back in (the sync loop).
+      if (r.instructorDraft) renderInstructorNote(screen, r);
 
       const btn = el("button", "btn-secondary", "Start new check-in");
       btn.style.marginTop = "0.5rem";
@@ -551,6 +507,128 @@ function renderCheckin(container) {
       })
       .catch(() => {});
   }
+}
+
+// ── Instructor note (done phase) ────────────────────────────────────────────
+// Render the "For your instructor" note so the builder can EDIT it before it
+// reaches a real person, send it over Slack, and pull the mentor's reply back
+// into the app — the return leg of the sync loop.
+function renderInstructorNote(screen, r) {
+  const trivial = /nothing needs instructor input/i.test(r.instructorDraft || "");
+  const slackOn = appConfig && appConfig.chatSurface === "slack";
+
+  const wrap = el("div", "draft-wrap");
+  const labelEl = el("div", "section-label");
+  labelEl.appendChild(document.createTextNode("Instructor note "));
+  const badge = el("span", "badge-gated", trivial ? "nothing to send" : "draft — not sent");
+  labelEl.appendChild(badge);
+  wrap.appendChild(labelEl);
+
+  if (trivial || !slackOn) {
+    // Nothing to escalate, or no Slack channel to send it over — read-only.
+    const body = el("div", "markdown-body");
+    body.innerHTML = renderMarkdown(r.instructorDraft || "");
+    wrap.appendChild(body);
+    if (!trivial && !slackOn) {
+      wrap.appendChild(el("p", "muted",
+        "Enable Slack in Settings to send this to your mentor and pull their reply back here."));
+    }
+    screen.appendChild(wrap);
+    return;
+  }
+
+  // Editable note. The builder owns what gets sent — "record, don't dictate".
+  wrap.appendChild(el("p", "muted", "Edit before sending — this goes to your mentor as-is."));
+  const ta = el("textarea", "field-input");
+  ta.rows = Math.min(12, Math.max(4, (r.instructorDraft || "").split("\n").length + 1));
+  ta.value = r.instructorDraft || "";
+  wrap.appendChild(ta);
+
+  const actionRow = el("div", "slack-action-row");
+  const sendBtn = el("button", "btn-secondary", "Send to instructor via Slack");
+  const statusEl = el("span", "slack-action-status", "");
+  actionRow.appendChild(sendBtn);
+  actionRow.appendChild(statusEl);
+  wrap.appendChild(actionRow);
+
+  // Container for the reply-pull affordance, shown after a successful send.
+  const replyWrap = el("div");
+  wrap.appendChild(replyWrap);
+
+  sendBtn.addEventListener("click", async () => {
+    const text = ta.value.trim();
+    if (!text) {
+      statusEl.className = "slack-action-status warn";
+      statusEl.textContent = "Nothing to send.";
+      return;
+    }
+    sendBtn.disabled = true;
+    ta.disabled = true;
+    statusEl.className = "slack-action-status";
+    statusEl.textContent = "Sending…";
+    try {
+      const result = await api("POST", "/api/send-instructor", { date: r.date, text });
+      if (result.ok) {
+        statusEl.className = "slack-action-status success";
+        statusEl.textContent = "Sent to instructor.";
+        badge.className = "badge-sent";
+        badge.textContent = "sent";
+        renderReplySync(replyWrap);
+      } else {
+        statusEl.className = "slack-action-status warn";
+        statusEl.textContent = result.reason || "Nothing to send.";
+        sendBtn.disabled = false;
+        ta.disabled = false;
+      }
+    } catch (e) {
+      statusEl.className = "slack-action-status error";
+      statusEl.textContent = "Failed: " + e.message;
+      sendBtn.disabled = false;
+      ta.disabled = false;
+    }
+  });
+
+  screen.appendChild(wrap);
+}
+
+// After a note is sent, let the builder pull the mentor's reply back in. The
+// reply is also folded into the instructor thread server-side so it informs the
+// next synthesis.
+function renderReplySync(container) {
+  container.innerHTML = "";
+  const row = el("div", "slack-action-row");
+  const btn = el("button", "btn-ghost", "Check for your mentor's reply");
+  const status = el("span", "slack-action-status", "");
+  row.appendChild(btn);
+  row.appendChild(status);
+  container.appendChild(row);
+
+  btn.addEventListener("click", async () => {
+    btn.disabled = true;
+    status.className = "slack-action-status";
+    status.textContent = "Looking for a reply…";
+    try {
+      const r = await api("POST", "/api/instructor/sync-reply");
+      if (!r.synced) {
+        status.className = "slack-action-status warn";
+        status.textContent = "No reply yet — check back after your mentor responds.";
+        btn.disabled = false;
+        return;
+      }
+      status.className = "slack-action-status success";
+      status.textContent = "Reply received.";
+      const reply = el("div", "info-box");
+      reply.appendChild(el("div", "section-label", "From your mentor"));
+      const body = el("div", "markdown-body");
+      body.innerHTML = renderMarkdown(r.reply || "");
+      reply.appendChild(body);
+      container.appendChild(reply);
+    } catch (e) {
+      status.className = "slack-action-status error";
+      status.textContent = "Failed: " + e.message;
+      btn.disabled = false;
+    }
+  });
 }
 
 // ── "This week" panel — objectives / progress / blockers, set via web or Slack ──

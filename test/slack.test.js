@@ -43,7 +43,8 @@ function freePort() {
 // ── suite ─────────────────────────────────────────────────────────────────────
 
 describe("Slack actions against fake Slack server", () => {
-  let sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies;
+  let sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies,
+      collectInstructorFeedback;
   let fakeSlack;
   let fakePort;
   // Mutable array — tests clear it before each assertion round.
@@ -103,7 +104,8 @@ describe("Slack actions against fake Slack server", () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-fake-test-token";
 
     // Dynamic require — loads fresh with the env vars already set above.
-    ({ sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies } =
+    ({ sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies,
+       collectInstructorFeedback } =
       require("../src/slack-actions"));
   });
 
@@ -299,6 +301,43 @@ describe("Slack actions against fake Slack server", () => {
       !postCall.body.text.includes(firstDraft),
       "message must NOT include the earlier draft"
     );
+  });
+
+  test("sendInstructorNote — sends the student-edited text without needing a file", async () => {
+    captured.length = 0;
+
+    const edited = "Edited note: please review the schema decision before Friday.";
+    // A far-past date with no file on disk — proves the override path bypasses
+    // the file read entirely.
+    const result = await sendInstructorNote(mockCfg(), { date: "1900-03-01", text: edited });
+
+    assert.equal(result.ok, true, "edited text should send even with no draft file");
+    const postCall = captured.find((c) => c.endpoint === "/chat.postMessage");
+    assert.ok(postCall, "chat.postMessage must have been called");
+    assert.ok(
+      postCall.body.text.includes(edited),
+      `message must contain the edited text; got: ${postCall.body.text}`
+    );
+
+    // Clean up the "Sent to instructor" audit append the send writes.
+    const ROOT = path.resolve(__dirname, "..");
+    try { fs.unlinkSync(path.join(ROOT, "raw", "instructor", "1900-03-01.md")); } catch {}
+  });
+
+  test("collectInstructorFeedback — intakes instructor replies since the note ts", async () => {
+    captured.length = 0;
+    history = [
+      { ts: "1700000021.000001", user: "U-INSTRUCTOR-002", text: "Good progress — let's talk Friday." },
+      { ts: "1700000020.000000", user: "BOT-FAKE-U000", subtype: "bot_message", text: "Builder Log update…" },
+      { ts: "1700000022.000002", user: "U-INSTRUCTOR-002", text: "Also: confirm the platform first." },
+    ];
+
+    const state = { slack: { instructorNoteTs: "1700000020.000000" } };
+    const { messages } = await collectInstructorFeedback(mockCfg(), state);
+
+    assert.equal(messages.length, 2, "both instructor replies, bot excluded");
+    assert.equal(messages[0].text, "Good progress — let's talk Friday.", "oldest first");
+    assert.equal(messages[1].text, "Also: confirm the platform first.");
   });
 
   // ── multi-message intake (the "Sync with Slack" pull) ──────────────────────

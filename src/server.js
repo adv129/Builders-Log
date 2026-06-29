@@ -540,8 +540,10 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // POST /api/send-instructor — DM the instructor draft for a given date.
-  // Body: { date } — optional, defaults to today.
+  // POST /api/send-instructor — DM the instructor the note for a given date.
+  // Body: { date?, text? } — text is the student-edited note (optional).
+  // On success, arms reply collection (stores the sent ts) so the builder can
+  // pull the instructor's response back into the app.
   if (req.method === "POST" && pathname === "/api/send-instructor") {
     let body = {};
     try {
@@ -556,8 +558,68 @@ async function handleRequest(req, res) {
       return;
     }
     try {
-      const result = await slackActions.sendInstructorNote(cfg, { date: body.date });
+      const result = await slackActions.sendInstructorNote(cfg, { date: body.date, text: body.text });
+      if (result.ok) {
+        const state = core.loadState();
+        state.slack = state.slack || {};
+        state.slack.instructorNoteTs = result.ts;
+        state.slack.instructorNoteDate = body.date || core.today();
+        state.slack.instructorNoteAwaiting = true;
+        core.saveState(state);
+      }
       json(res, 200, result);
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // GET /api/instructor/status — is a sent note awaiting the instructor's reply?
+  if (req.method === "GET" && pathname === "/api/instructor/status") {
+    const state = core.loadState();
+    const sl = state.slack || {};
+    json(res, 200, {
+      awaitingReply: !!sl.instructorNoteAwaiting,
+      noteDate: sl.instructorNoteDate || null,
+    });
+    return;
+  }
+
+  // POST /api/instructor/sync-reply — pull the instructor's reply to the last
+  // note and fold it into the instructor thread (so it informs future
+  // synthesis) + the raw instructor file. Closes the sync loop.
+  if (req.method === "POST" && pathname === "/api/instructor/sync-reply") {
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      const { messages } = await slackActions.collectInstructorFeedback(cfg, state);
+      const texts = messages.map((m) => m.text).filter(Boolean);
+      if (!texts.length) { json(res, 200, { synced: false }); return; }
+
+      const noteDate = (state.slack && state.slack.instructorNoteDate) || core.today();
+      const joined = texts.join("\n\n");
+
+      // RAW: append the inbound reply (append-only audit trail).
+      try {
+        fs.appendFileSync(
+          path.join(ROOT, "raw", "instructor", `${noteDate}.md`),
+          `\n## Reply from instructor — ${core.today()}\n${joined}\n`
+        );
+      } catch { /* non-fatal */ }
+
+      // Fold into the instructor thread so buildHistoryContext surfaces it to
+      // the model on the next sync (this is the field it already reads).
+      state.instructorThread = state.instructorThread || [];
+      for (const m of messages) {
+        if (!m.text) continue;
+        state.instructorThread.push({ ts: m.ts, date: core.today(), text: m.text, from: "instructor" });
+      }
+      state.slack = state.slack || {};
+      state.slack.instructorNoteAwaiting = false;
+      core.saveState(state);
+
+      json(res, 200, { synced: true, reply: joined, messages: texts });
     } catch (e) {
       if (!res.headersSent) apiError(res, 500, e.message);
     }
