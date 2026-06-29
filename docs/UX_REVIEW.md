@@ -2,6 +2,15 @@
 
 _Reviewed: 2026-06-29 · Branch: `ux_overhaul`_
 
+> **Update (post-review, per feedback):** two of the fixes below were rolled back.
+> The **History "This week so far" + "Shared with your mentor" panels (Theme 6)** were
+> removed — the weekly trajectory already lives on the Check-in screen, and History stays
+> the project plan + past entries. The **Slack mentor-calibration round-trip (Theme 4)** was
+> removed in favor of a simple **Copy questionnaire** in Settings → Instructor (no auto-ingest).
+> The new check-in panels (mentor context, "This week" lists) were also **restyled** to match
+> the app's white-card / ink-border language (no tan-on-tan, readable type). Everything else
+> below stands.
+
 This is a full walk of the experience against one job-to-be-done:
 
 > **A student/intern keeps a log of building a project, and that log helps them _sync_ with their mentor.**

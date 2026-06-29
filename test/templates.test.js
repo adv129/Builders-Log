@@ -18,7 +18,6 @@ const {
   synthesizeEntry,
   INSTRUCTOR_QUESTIONS,
   instructorDoc,
-  extractInstructorPrefs,
   projectPlanPrompt,
   PROJECT_PLAN_FORMAT,
 } = require("../src/templates/index");
@@ -429,37 +428,5 @@ describe("instructorDoc", () => {
   test("works with null/undefined cfg (uses defaults)", () => {
     const doc = instructorDoc(null);
     assert.ok(typeof doc === "string" && doc.length > 0, "should not throw with null cfg");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// extractInstructorPrefs
-// ---------------------------------------------------------------------------
-
-describe("extractInstructorPrefs", () => {
-  const prompt = extractInstructorPrefs({
-    thesis: THESIS,
-    questions: INSTRUCTOR_QUESTIONS,
-    reply: "I mainly care about real evidence. Flag blockers early. Weekly is fine.",
-  });
-
-  test("starts with THESIS", () => {
-    assert.ok(prompt.startsWith(THESIS));
-  });
-
-  test("requests STRICT JSON with the preference field keys", () => {
-    assert.ok(prompt.includes("STRICT JSON"), "should request STRICT JSON");
-    for (const k of ["caresAbout", "wantsFlaggedEarly", "cadence", "format", "notUseful", "currentGoal"]) {
-      assert.ok(prompt.includes(`"${k}"`), `schema must include "${k}"`);
-    }
-  });
-
-  test("instructs not to invent preferences", () => {
-    assert.ok(/never invent/i.test(prompt), "should forbid inventing preferences");
-  });
-
-  test("embeds the instructor's reply and the questions", () => {
-    assert.ok(prompt.includes("real evidence"), "should include the reply text");
-    assert.ok(prompt.includes(INSTRUCTOR_QUESTIONS[0]), "should include the calibration questions");
   });
 });

@@ -690,12 +690,12 @@ function drawWeekPanel(root) {
       panel.appendChild(mc);
     }
 
-    // Nudge whenever triage is NOT mentor-calibrated (defaults, or the student's
-    // own guess). Made actionable in Settings → Instructor (ask via Slack).
-    if (instr.name && instr.preferencesSource !== "instructor") {
+    // Nudge when no instructor preferences are set yet (still on defaults), so
+    // triage runs generic. Calibrate in Settings → Instructor.
+    if (instr.name && (!instr.preferencesSource || instr.preferencesSource === "default")) {
       panel.appendChild(infoBox(
-        "Your mentor hasn't set their own preferences yet, so instructor notes run on " +
-        "uncalibrated settings. Calibrate them in Settings → Instructor for sharper, on-target updates."));
+        "No instructor preferences set yet, so instructor notes run on generic defaults. " +
+        "Set them in Settings → Instructor for sharper, on-target updates."));
     }
 
     if (st.error) panel.appendChild(errorBox(st.error));
@@ -873,19 +873,11 @@ function renderHistory(container) {
 
   const layout = el("div", "history-layout");
 
-  // "This week so far" — the trajectory at a glance (objectives done/open +
-  // recurring blockers). This is the arc mentorship needs, not just points.
-  const weekPanel = el("div", "status-panel");
-  weekPanel.appendChild(spinner("Loading…"));
-  layout.appendChild(weekPanel);
-
-  // "Shared with your mentor" — a record of what was escalated and whether the
-  // mentor replied.
-  const mentorPanel = el("div", "status-panel");
-  layout.appendChild(mentorPanel);
-
-  // Project-plan panel (read-only).
+  // Project-plan panel (read-only). Live weekly state (objectives/progress/
+  // blockers) lives on the Check-in screen — History is the project plan + past
+  // entries.
   const statusPanel = el("div", "status-panel");
+  statusPanel.appendChild(spinner("Loading…"));
   layout.appendChild(statusPanel);
 
   // Logs panel
@@ -904,15 +896,8 @@ function renderHistory(container) {
   screen.appendChild(layout);
   container.appendChild(screen);
 
-  // Each panel loads independently so one failure doesn't blank the screen.
-  api("GET", "/api/week")
-    .then((w) => drawWeekTrajectory(weekPanel, w))
-    .catch(() => { weekPanel.style.display = "none"; });
-
-  api("GET", "/api/instructor/notes")
-    .then((d) => drawMentorPanel(mentorPanel, d.notes || []))
-    .catch(() => { mentorPanel.style.display = "none"; });
-
+  // Project plan + past entries load independently so one failure doesn't blank
+  // the screen.
   api("GET", "/api/plan/project")
     .then((project) => { statusPanel.innerHTML = ""; drawProjectPanel(statusPanel, project); })
     .catch((e) => {
@@ -935,64 +920,6 @@ function renderHistory(container) {
       }
     })
     .catch((e) => { logsList.innerHTML = ""; logsList.appendChild(errorBox("Failed to load logs: " + e.message)); });
-
-  function drawWeekTrajectory(panel, w) {
-    panel.innerHTML = "";
-    panel.appendChild(el("h2", null, "This week so far"));
-    panel.appendChild(el("p", "muted", "Week of " + esc(w.weekOf)));
-
-    const objs = w.objectives || [];
-    if (objs.length) {
-      const done = objs.filter((o) => o.done).length;
-      const sec = el("div", "status-section");
-      sec.appendChild(el("h3", null, `Objectives — ${done}/${objs.length} done`));
-      const ul = el("ul", "week-objectives");
-      objs.forEach((o) => {
-        const li = document.createElement("li");
-        if (o.done) li.className = "done";
-        li.textContent = (o.done ? "✓ " : "• ") + o.text;
-        ul.appendChild(li);
-      });
-      sec.appendChild(ul);
-      panel.appendChild(sec);
-    } else {
-      panel.appendChild(el("p", "muted", "No objectives set this week."));
-    }
-
-    if ((w.blockers || []).length) {
-      const sec = el("div", "status-section");
-      sec.appendChild(el("h3", null, "Blockers"));
-      const ul = el("ul", "week-blockers");
-      w.blockers.forEach((b) => {
-        const li = document.createElement("li");
-        li.textContent = b.text + (b.count > 1 ? ` (seen ${b.count}×)` : "");
-        ul.appendChild(li);
-      });
-      sec.appendChild(ul);
-      panel.appendChild(sec);
-    }
-  }
-
-  function drawMentorPanel(panel, notes) {
-    panel.innerHTML = "";
-    panel.appendChild(el("h2", null, "Shared with your mentor"));
-    if (!notes.length) {
-      panel.appendChild(el("p", "muted",
-        "Nothing shared yet. After a check-in, send the instructor note from the check-in screen."));
-      return;
-    }
-    const list = el("div", "mentor-notes");
-    notes.forEach((n) => {
-      const item = el("div", "mentor-note");
-      item.appendChild(el("span", "mentor-note-date", esc(n.date)));
-      const badges = el("span", "note-badges");
-      badges.appendChild(el("span", n.sent ? "badge-sent" : "badge-gated", n.sent ? "sent" : "draft"));
-      if (n.replied) badges.appendChild(el("span", "badge-rec", "reply"));
-      item.appendChild(badges);
-      list.appendChild(item);
-    });
-    panel.appendChild(list);
-  }
 
   function drawProjectPanel(panel, project) {
     panel.appendChild(el("h2", null, "Project plan"));
@@ -1758,8 +1685,6 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
 
   // ── Instructor ──
   const instrSec = section("Instructor");
-  // Capture field inputs so a mentor calibration sync can repopulate them.
-  const instrInputs = {};
 
   const instrNameF = makeField("Instructor name", draft.instructor?.name, { placeholder: "e.g. Dr. Smith" });
   instrNameF.input.addEventListener("input", () => {
@@ -1767,7 +1692,6 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
     draft.instructor.name = instrNameF.input.value;
   });
   instrSec.appendChild(instrNameF.grp);
-  instrInputs.name = { input: instrNameF.input, isArray: false };
 
   [
     { k: "caresAbout",        label: "Cares about (one per line)",     isArray: true },
@@ -1785,12 +1709,10 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
         : f.input.value;
     });
     instrSec.appendChild(f.grp);
-    instrInputs[k] = { input: f.input, isArray: !!isArray };
   });
 
-  // Mentor calibration — let the mentor set the fields above themselves, instead
-  // of the student guessing. Copy a questionnaire, or (with Slack) ask + sync.
-  renderInstructorCalibration(instrSec, draft, instrInputs);
+  // Mentor calibration — let the mentor fill these fields in their own words.
+  renderInstructorCalibration(instrSec);
 
   container.appendChild(instrSec);
 
@@ -2127,16 +2049,12 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
 // The mentor's real preferences drive triage quality. This lets them set the
 // fields themselves: copy a questionnaire to send any way, or — with Slack —
 // ask over DM and pull their free-text answer back, mapped into the fields.
-function renderInstructorCalibration(sec, draft, inputs) {
-  const slackOn = draft.chatSurface === "slack";
-
+function renderInstructorCalibration(sec) {
   const wrap = el("div", "calibration-block");
   wrap.appendChild(el("div", "field-label", "Mentor calibration"));
   wrap.appendChild(el("p", "muted",
-    "Let your mentor fill in the fields above in their own words — " +
-    (slackOn
-      ? "ask them over Slack and pull their answers back automatically, or copy the questionnaire to send any way."
-      : "copy the questionnaire to send, or enable Slack above to ask and pull answers back automatically.")));
+    "Let your mentor fill in the fields above in their own words — copy the questionnaire and " +
+    "send it to them, then enter their answers here."));
 
   const row = el("div", "slack-action-row");
   const status = el("span", "slack-action-status", "");
@@ -2154,73 +2072,9 @@ function renderInstructorCalibration(sec, draft, inputs) {
     }
   });
   row.appendChild(copyBtn);
-
-  if (slackOn) {
-    let awaiting = false;
-    const askBtn = el("button", "btn-secondary", "Ask mentor via Slack");
-    askBtn.addEventListener("click", async () => {
-      askBtn.disabled = true;
-      status.className = "slack-action-status";
-      try {
-        if (!awaiting) {
-          status.textContent = "Sending…";
-          await api("POST", "/api/instructor/ask-prefs");
-          awaiting = true;
-          askBtn.textContent = "Sync mentor's answers";
-          status.className = "slack-action-status success";
-          status.textContent = "Asked — your mentor answers in Slack, then click Sync.";
-        } else {
-          status.textContent = "Reading reply…";
-          const r = await api("POST", "/api/instructor/collect-prefs");
-          if (!r.collected) {
-            status.className = "slack-action-status warn";
-            status.textContent = "No answer yet — try again in a moment.";
-          } else {
-            applyPrefsToForm(inputs, draft, r.instructor);
-            awaiting = false;
-            askBtn.textContent = "Ask mentor via Slack";
-            status.className = "slack-action-status success";
-            status.textContent = "Mentor's preferences applied — review above, then Save settings.";
-          }
-        }
-      } catch (e) {
-        status.className = "slack-action-status error";
-        status.textContent = "Failed: " + e.message;
-      }
-      askBtn.disabled = false;
-    });
-    row.appendChild(askBtn);
-
-    // Resume a pending ask across reloads.
-    api("GET", "/api/instructor/status").then((st) => {
-      if (st.awaitingPrefs) {
-        awaiting = true;
-        askBtn.textContent = "Sync mentor's answers";
-        status.className = "slack-action-status";
-        status.textContent = "Waiting on your mentor's Slack reply — click Sync when they answer.";
-      }
-    }).catch(() => {});
-  }
-
   row.appendChild(status);
   wrap.appendChild(row);
   sec.appendChild(wrap);
-}
-
-// Push collected mentor preferences into the live form + draft + appConfig so
-// the values show immediately and a later Save won't clobber them with stale text.
-function applyPrefsToForm(inputs, draft, instructor) {
-  if (!instructor) return;
-  draft.instructor = Object.assign(draft.instructor || {}, instructor);
-  appConfig = appConfig || {};
-  appConfig.instructor = Object.assign(appConfig.instructor || {}, instructor);
-  for (const [k, meta] of Object.entries(inputs)) {
-    if (!(k in instructor)) continue;
-    const v = instructor[k];
-    meta.input.value = meta.isArray
-      ? (Array.isArray(v) ? v.join("\n") : (v || ""))
-      : (v == null ? "" : String(v));
-  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

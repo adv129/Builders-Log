@@ -353,12 +353,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .checkin-screen .generate-row > button { margin-top: 0; }
 
 .memory-summary {
-  background: var(--bg2);
+  background: var(--surface);
   border: 1.5px solid var(--ink);
   border-radius: var(--radius);
   padding: 0.7rem 1rem;
-  font-size: 0.85rem;
-  color: var(--muted);
+  font-size: 0.9rem;
+  color: var(--text);
   margin-bottom: 1.5rem;
   box-shadow: var(--shadow-sm);
 }
@@ -515,29 +515,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 /* ── "This week" panel (check-in screen) ── */
 .week-panel { margin-top: 2.5rem; }
 
-/* Mentor context — who you're syncing with + their current goal. */
+/* Mentor context — who you're syncing with + their current goal. Same white
+   card / ink border / hard-shadow language as the rest of the app. */
 .mentor-context {
-  background: var(--bg2);
-  border: 1.5px solid var(--hair);
-  border-radius: var(--radius-sm);
-  padding: 0.6rem 0.85rem;
-  margin-bottom: 1.25rem;
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 1rem 1.25rem;
+  margin-bottom: 1.5rem;
   display: flex;
   flex-direction: column;
-  gap: 0.35rem;
+  gap: 0.5rem;
 }
-.mentor-line { display: flex; gap: 0.6rem; font-size: 0.85rem; align-items: baseline; }
+.mentor-line { display: flex; gap: 0.65rem; font-size: 0.95rem; align-items: baseline; line-height: 1.45; }
 .mentor-key {
-  font-family: var(--font-mono);
-  font-size: 0.62rem;
-  text-transform: uppercase;
-  letter-spacing: 0.06em;
-  color: var(--muted);
+  font-size: 0.95rem;
   font-weight: 700;
+  color: var(--ink);
   flex-shrink: 0;
-  min-width: 3.4rem;
+  min-width: 3.75rem;
 }
-.mentor-val { white-space: pre-wrap; }
+.mentor-val { white-space: pre-wrap; color: var(--text); }
 .week-objectives,
 .week-progress,
 .week-blockers,
@@ -553,11 +552,12 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .week-progress li,
 .week-blockers li,
 .week-where li {
-  font-size: 0.9rem;
-  padding: 0.4rem 0.6rem;
-  background: var(--bg2);
-  border: 1.5px solid var(--hair);
+  font-size: 0.95rem;
+  padding: 0.55rem 0.8rem;
+  background: var(--surface);
+  border: 1.5px solid var(--ink);
   border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
 }
 .week-objectives li.done { color: var(--muted); text-decoration: line-through; }
 /* Same spacing as the daily check-in's .generate-row for a cohesive feel. */
@@ -632,21 +632,6 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   margin-right: 1rem;
 }
 .churn-count { font-family: var(--font-display); color: var(--accent-h); flex-shrink: 0; }
-
-/* ── Shared-with-mentor record (History) ── */
-.mentor-notes { display: flex; flex-direction: column; gap: 0.4rem; }
-.mentor-note {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 0.75rem;
-  padding: 0.45rem 0.7rem;
-  background: var(--bg2);
-  border: 1.5px solid var(--hair);
-  border-radius: var(--radius-sm);
-}
-.mentor-note-date { font-family: var(--font-mono); font-size: 0.82rem; }
-.note-badges { display: inline-flex; gap: 0.4rem; flex-shrink: 0; }
 
 .logs-panel h2 { margin-bottom: 0.75rem; }
 
