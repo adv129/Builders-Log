@@ -348,8 +348,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   margin-top: 1.5rem;
 }
 /* Drop any per-button margin (e.g. .checkin-screen .btn-primary's margin-top)
-   so buttons in the row stay the same height and vertically aligned. */
-.generate-row > button { margin-top: 0; }
+   so buttons in the row stay the same height and vertically aligned. The
+   .checkin-screen prefix is needed to outrank `.checkin-screen .btn-primary`. */
+.checkin-screen .generate-row > button { margin-top: 0; }
 
 .memory-summary {
   background: var(--bg2);
