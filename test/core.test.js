@@ -214,7 +214,9 @@ describe("runAsk — no-change short-circuit", () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "bl-core-test-"));
     try {
       fs.writeFileSync(path.join(tmpDir, "work.md"), "some work content");
-      const snap = snapshot(tmpDir);
+      // runAsk keys snapshots through the roots registry (rootsOf → id "r1"),
+      // so build state.files the same way (namespaced keys) to match.
+      const snap = snapshot([{ id: "r1", path: tmpDir }]);
 
       const state = {
         lastRun: new Date().toISOString(),

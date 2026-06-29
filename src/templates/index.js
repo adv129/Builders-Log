@@ -21,6 +21,8 @@ const { askQuestions, DEFAULT_ASK_GUIDANCE } = require("./ask");
 const { extractFacts } = require("./extract");
 const { synthesizeEntry } = require("./synthesize");
 const { INSTRUCTOR_QUESTIONS, instructorDoc } = require("./onboard");
+const { PROJECT_PLAN_FORMAT, projectPlanPrompt } = require("./projectPlan");
+const { suggestObjectives } = require("./priorities");
 
 // Default text for the user-editable prompts (Settings → Prompts). The UI reads
 // these to pre-fill the editors and power "Reset to default". Anything NOT
@@ -39,6 +41,9 @@ module.exports = {
   synthesizeEntry,
   INSTRUCTOR_QUESTIONS,
   instructorDoc,
+  PROJECT_PLAN_FORMAT,
+  projectPlanPrompt,
+  suggestObjectives,
   DEFAULT_ASK_GUIDANCE,
   PROMPT_DEFAULTS,
 };

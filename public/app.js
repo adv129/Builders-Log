@@ -179,6 +179,13 @@ const BRAND_LOGO_SVG =
   '<text x="0" y="1" text-anchor="middle" dominant-baseline="central" font-family="\'Archivo Black\',\'Arial Black\',sans-serif" font-weight="900" font-size="46" fill="#ffffff">B</text>' +
   "</svg>";
 
+// Two-overlapping-squares copy icon (matches the common "copy" affordance).
+const COPY_ICON_SVG =
+  '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" ' +
+  'stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">' +
+  '<rect x="9" y="9" width="13" height="13" rx="2"/>' +
+  '<path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>';
+
 function buildNav(setupComplete) {
   const nav = document.getElementById("nav");
   nav.innerHTML = "";
@@ -211,6 +218,15 @@ function buildNav(setupComplete) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 function renderCheckin(container) {
+  container.innerHTML = "";
+  // Two persistent children: the daily check-in (redrawn by draw()) and the
+  // "This week" panel (managed independently so a check-in redraw never wipes
+  // it mid-interaction).
+  const checkinRoot = el("div");
+  const weekRoot = el("div");
+  container.appendChild(checkinRoot);
+  container.appendChild(weekRoot);
+
   // Local state machine
   const s = {
     phase: "idle",   // idle | asking | questions | generating | done
@@ -222,7 +238,7 @@ function renderCheckin(container) {
   };
 
   function draw() {
-    container.innerHTML = "";
+    checkinRoot.innerHTML = "";
     const screen = el("div", "screen checkin-screen");
 
     screen.appendChild(el("h1", null, "Daily Check-in"));
@@ -374,7 +390,7 @@ function renderCheckin(container) {
       screen.appendChild(btn);
     }
 
-    container.appendChild(screen);
+    checkinRoot.appendChild(screen);
   }
 
   async function doAsk() {
@@ -416,6 +432,180 @@ function renderCheckin(container) {
   }
 
   draw();
+  drawWeekPanel(weekRoot);
+}
+
+// ── "This week" panel — objectives / progress / blockers, set via web or Slack ──
+// Rendered below the daily check-in. Self-managing: owns its own fetch + redraw.
+function drawWeekPanel(root) {
+  const st = { data: null, mode: "view", error: null, draftObjectives: "" };
+
+  function load() {
+    root.innerHTML = "";
+    root.appendChild(spinner("Loading this week…"));
+    api("GET", "/api/week")
+      .then((d) => { st.data = d; st.mode = "view"; st.error = null; render(); })
+      .catch((e) => {
+        root.innerHTML = "";
+        root.appendChild(errorBox("Failed to load this week: " + e.message));
+      });
+  }
+
+  function bulletList(cls, items, fmt) {
+    const ul = el("ul", cls);
+    items.forEach((it) => {
+      const li = document.createElement("li");
+      li.textContent = fmt(it);
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
+  function render() {
+    root.innerHTML = "";
+    const d = st.data || {};
+    const panel = el("div", "screen week-panel");
+
+    const head = el("div", "week-head");
+    head.appendChild(el("h2", null, "This week"));
+    panel.appendChild(head);
+
+    if (st.error) panel.appendChild(errorBox(st.error));
+
+    if (d.awaitingInstructor) {
+      panel.appendChild(infoBox("Waiting for your instructor's priorities in Slack."));
+      const row = el("div", "week-actions");
+      const checkBtn = el("button", "btn-secondary", "Check for reply");
+      checkBtn.addEventListener("click", collectReply);
+      row.appendChild(checkBtn);
+      panel.appendChild(row);
+    }
+
+    if (st.mode === "edit") {
+      panel.appendChild(el("p", "muted", "One objective per line. Keep it short and high-level."));
+      const ta = el("textarea", "field-input");
+      ta.rows = 4;
+      ta.value = st.draftObjectives;
+      ta.placeholder = "e.g. Ship the onboarding flow";
+      ta.addEventListener("input", () => { st.draftObjectives = ta.value; });
+      panel.appendChild(ta);
+
+      const actions = el("div", "week-actions");
+      const saveBtn = el("button", "btn-primary", "Save");
+      saveBtn.addEventListener("click", () => saveObjectives(ta.value));
+      const suggestBtn = el("button", "btn-secondary", "Suggest");
+      suggestBtn.addEventListener("click", () => suggest(ta, suggestBtn));
+      const cancelBtn = el("button", "btn-ghost", "Cancel");
+      cancelBtn.addEventListener("click", () => { st.mode = "view"; render(); });
+      actions.appendChild(saveBtn);
+      actions.appendChild(suggestBtn);
+      actions.appendChild(cancelBtn);
+      panel.appendChild(actions);
+      root.appendChild(panel);
+      return;
+    }
+
+    const objs = d.objectives || [];
+    if (objs.length) {
+      panel.appendChild(bulletList("week-objectives", objs, (o) => (o.done ? "✓ " : "• ") + o.text));
+    } else if (!d.awaitingInstructor) {
+      panel.appendChild(el("p", "muted", "No objectives set for this week yet."));
+    }
+
+    if ((d.progress || []).length) {
+      panel.appendChild(el("div", "section-label", "Progress"));
+      panel.appendChild(bulletList("week-progress", d.progress.slice(-6), (p) => p));
+    }
+    if ((d.blockers || []).length) {
+      panel.appendChild(el("div", "section-label", "Blockers"));
+      panel.appendChild(bulletList("week-blockers", d.blockers,
+        (b) => b.text + (b.count > 1 ? ` (seen ${b.count}x)` : "")));
+    }
+    if ((d.whereToLook || []).length) {
+      panel.appendChild(el("div", "section-label", "Where to look"));
+      panel.appendChild(bulletList("week-where", d.whereToLook, (w) => w));
+    }
+
+    const actions = el("div", "week-actions");
+    const setBtn = el("button", "btn-primary", objs.length ? "Update priorities" : "Set priorities");
+    setBtn.addEventListener("click", () => {
+      st.draftObjectives = objs.map((o) => o.text).join("\n");
+      st.mode = "edit";
+      render();
+    });
+    actions.appendChild(setBtn);
+    if (d.slackEnabled) {
+      const askBtn = el("button", "btn-secondary", "Ask instructor via Slack");
+      askBtn.addEventListener("click", () => askInstructor(askBtn));
+      actions.appendChild(askBtn);
+    }
+    panel.appendChild(actions);
+    root.appendChild(panel);
+  }
+
+  async function saveObjectives(text) {
+    const items = text.split("\n").map((s) => s.trim()).filter(Boolean);
+    try {
+      await api("POST", "/api/week/objectives", { objectives: items });
+      load();
+    } catch (e) {
+      st.error = "Save failed: " + e.message;
+      render();
+    }
+  }
+
+  async function suggest(ta, btn) {
+    btn.disabled = true;
+    const prev = btn.textContent;
+    btn.textContent = "Thinking…";
+    try {
+      const r = await api("POST", "/api/week/suggest");
+      if (r.objectives && r.objectives.length) {
+        const base = ta.value.trim();
+        ta.value = (base ? base + "\n" : "") + r.objectives.join("\n");
+        st.draftObjectives = ta.value;
+      } else {
+        st.error = "No suggestions returned.";
+        render();
+        return;
+      }
+    } catch (e) {
+      st.error = "Suggest failed: " + e.message;
+      render();
+      return;
+    }
+    btn.disabled = false;
+    btn.textContent = prev;
+  }
+
+  async function askInstructor(btn) {
+    btn.disabled = true;
+    btn.textContent = "Asking…";
+    try {
+      await api("POST", "/api/week/ask-instructor", {});
+      load();
+    } catch (e) {
+      st.error = "Slack ask failed: " + e.message;
+      render();
+    }
+  }
+
+  async function collectReply() {
+    try {
+      const r = await api("POST", "/api/week/collect");
+      if (!r.collected) {
+        st.error = "No reply yet — try again in a moment.";
+        render();
+      } else {
+        load();
+      }
+    } catch (e) {
+      st.error = "Collect failed: " + e.message;
+      render();
+    }
+  }
+
+  load();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -450,11 +640,11 @@ function renderHistory(container) {
   screen.appendChild(layout);
   container.appendChild(screen);
 
-  // Fetch both in parallel
-  Promise.all([api("GET", "/api/status"), api("GET", "/api/logs")])
-    .then(([status, logs]) => {
+  // Fetch in parallel — the weekly plan is the source of truth now.
+  Promise.all([api("GET", "/api/week"), api("GET", "/api/plan/project"), api("GET", "/api/logs")])
+    .then(([week, project, logs]) => {
       statusPanel.innerHTML = "";
-      drawStatusPanel(statusPanel, status);
+      drawWeekStatus(statusPanel, week, project);
 
       logsList.innerHTML = "";
       if (!logs.length) {
@@ -472,6 +662,67 @@ function renderHistory(container) {
       statusPanel.innerHTML = "";
       statusPanel.appendChild(errorBox("Failed to load status: " + e.message));
     });
+
+  function drawWeekStatus(panel, week, project) {
+    const objs = (week.objectives || []);
+    const done = objs.filter((o) => o.done).length;
+
+    const hdr = el("div", "status-header");
+    [
+      [objs.length, "objectives"],
+      [done, "done"],
+      [(week.blockers || []).length, "blockers"],
+    ].forEach(([n, label]) => {
+      const stat = el("div", "status-stat");
+      stat.appendChild(el("span", "stat-n", String(n)));
+      stat.appendChild(el("span", "stat-label", label));
+      hdr.appendChild(stat);
+    });
+    panel.appendChild(hdr);
+
+    if (objs.length) {
+      const sec = el("div", "status-section");
+      sec.appendChild(el("h3", null, "Objectives"));
+      objs.forEach((o) => {
+        const item = el("div", "commitment-item");
+        item.appendChild(el("p", o.done ? "commitment-text done" : "commitment-text",
+          (o.done ? "✓ " : "• ") + esc(o.text)));
+        sec.appendChild(item);
+      });
+      panel.appendChild(sec);
+    }
+
+    if ((week.blockers || []).length) {
+      const sec = el("div", "status-section");
+      sec.appendChild(el("h3", null, "Blockers"));
+      week.blockers.forEach((b) => {
+        const item = el("div", "blocker-item");
+        item.appendChild(el("p", "blocker-text", esc(b.text)));
+        if (b.count > 1 || b.since) {
+          item.appendChild(el("p", "muted",
+            `Seen ${b.count}x${b.since ? ` · since ${esc(b.since)}` : ""}`));
+        }
+        sec.appendChild(item);
+      });
+      panel.appendChild(sec);
+    }
+
+    if (project && project.markdown && project.markdown.trim()) {
+      const sec = el("div", "status-section");
+      const det = el("details", "project-plan-disclosure");
+      det.appendChild(el("summary", null, "Project plan"));
+      const body = el("div", "markdown-body");
+      body.innerHTML = renderMarkdown(project.markdown);
+      det.appendChild(body);
+      sec.appendChild(det);
+      panel.appendChild(sec);
+    }
+
+    if (!objs.length && !(week.blockers || []).length) {
+      panel.appendChild(el("p", "muted",
+        "No objectives set yet. Set this week's priorities on the Check-in screen."));
+    }
+  }
 
   async function loadLog(date, btn) {
     document.querySelectorAll(".log-item").forEach((b) => b.classList.remove("active"));
@@ -495,75 +746,6 @@ function renderHistory(container) {
       logViewer.innerHTML = "";
       logViewer.appendChild(errorBox(`Could not load log for ${date}: ${e.message}`));
     }
-  }
-}
-
-function drawStatusPanel(container, status) {
-  const commitments = status.openCommitments || [];
-  const resolved    = status.resolved || [];
-  const blockers    = status.blockers || [];
-  const churn       = status.churn || [];
-
-  // Stat row
-  const hdr = el("div", "status-header");
-  [
-    [commitments.length, "open"],
-    [resolved.length, "resolved"],
-    [blockers.length, "blockers"],
-  ].forEach(([n, label]) => {
-    const stat = el("div", "status-stat");
-    stat.appendChild(el("span", "stat-n", String(n)));
-    stat.appendChild(el("span", "stat-label", label));
-    hdr.appendChild(stat);
-  });
-  container.appendChild(hdr);
-
-  if (commitments.length) {
-    const sec = el("div", "status-section");
-    sec.appendChild(el("h3", null, "Open commitments"));
-    commitments.forEach((c) => {
-      const item = el("div", "commitment-item");
-      item.appendChild(el("p", "commitment-text", esc(c.text)));
-      const age      = `${c.daysOpen} day${c.daysOpen !== 1 ? "s" : ""}`;
-      const carried  = c.carried ? ` · carried ${c.carried}x` : "";
-      const evidence = c.hasEvidence ? " · has evidence" : " · no evidence yet";
-      const due      = c.due ? ` · due ${esc(c.due)}` : "";
-      item.appendChild(el("p", "commitment-meta", `${age}${carried}${evidence}${due}`));
-      sec.appendChild(item);
-    });
-    container.appendChild(sec);
-  }
-
-  if (blockers.length) {
-    const sec = el("div", "status-section");
-    sec.appendChild(el("h3", null, "Blockers"));
-    blockers.forEach((b) => {
-      const item = el("div", "blocker-item");
-      item.appendChild(el("p", "blocker-text", esc(b.text)));
-      item.appendChild(el("p", "muted",
-        `Seen ${b.count} time${b.count !== 1 ? "s" : ""} · first seen ${esc(b.firstSeen)}`));
-      sec.appendChild(item);
-    });
-    container.appendChild(sec);
-  }
-
-  if (churn.length) {
-    const sec = el("div", "status-section");
-    sec.appendChild(el("h3", null, "Active files"));
-    const table = el("div", "churn-table");
-    churn.slice(0, 12).forEach(({ file, changes }) => {
-      const row = el("div", "churn-row");
-      row.appendChild(el("span", "churn-file", esc(file)));
-      row.appendChild(el("span", "churn-count", String(changes)));
-      table.appendChild(row);
-    });
-    sec.appendChild(table);
-    container.appendChild(sec);
-  }
-
-  if (!commitments.length && !blockers.length && !churn.length) {
-    container.appendChild(el("p", "muted",
-      "No active commitments, blockers, or file activity yet."));
   }
 }
 
@@ -1382,6 +1564,120 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
     "Extra steering for the written entry. The three sections (Builder Log / For your instructor / Friction check) stay fixed.", 3);
 
   container.appendChild(promptSec);
+
+  // ── Plans (project + weekly, editable) ──
+  // These save via their own endpoints (not the config draft) since they're
+  // markdown files the agent maintains and the human can edit.
+  const plansSec = section("Plans", { open: false });
+  plansSec.appendChild(el("p", "muted",
+    "The project plan (high-level, refreshed weekly) and this week's plan. " +
+    "Editable here — the agent also maintains them."));
+
+  // Project plan
+  const projGrp = el("div", "field-group");
+  const projLabelRow = el("div", "prompt-label-row");
+  projLabelRow.appendChild(el("label", "field-label", "Project plan"));
+  const copyBtn = el("button", "btn-ghost prompt-reset");
+  copyBtn.title = "Copy a prompt to (re)create the project plan in the correct format";
+  copyBtn.innerHTML = COPY_ICON_SVG + " Copy prompt";
+  projLabelRow.appendChild(copyBtn);
+  projGrp.appendChild(projLabelRow);
+  const projTa = el("textarea", "field-input prompt-input");
+  projTa.rows = 10;
+  projTa.placeholder = "# Project Plan — …";
+  projGrp.appendChild(projTa);
+  const projActions = el("div", "week-actions");
+  const projSave = el("button", "btn-secondary", "Save project plan");
+  const projGen = el("button", "btn-ghost", "Generate with agent");
+  const projStatus = el("span", "slack-action-status", "");
+  projActions.appendChild(projSave);
+  projActions.appendChild(projGen);
+  projActions.appendChild(projStatus);
+  projGrp.appendChild(projActions);
+  plansSec.appendChild(projGrp);
+
+  let projectPrompt = "";
+  copyBtn.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(projectPrompt || "");
+      copyBtn.innerHTML = COPY_ICON_SVG + " Copied!";
+      setTimeout(() => { copyBtn.innerHTML = COPY_ICON_SVG + " Copy prompt"; }, 1500);
+    } catch {
+      projStatus.className = "slack-action-status warn";
+      projStatus.textContent = "Clipboard blocked — prompt logged to console.";
+      console.log(projectPrompt);
+    }
+  });
+  projSave.addEventListener("click", async () => {
+    projSave.disabled = true;
+    projStatus.className = "slack-action-status";
+    projStatus.textContent = "Saving…";
+    try {
+      await api("POST", "/api/plan/project", { markdown: projTa.value });
+      projStatus.className = "slack-action-status success";
+      projStatus.textContent = "Saved.";
+    } catch (e) {
+      projStatus.className = "slack-action-status error";
+      projStatus.textContent = "Failed: " + e.message;
+    }
+    projSave.disabled = false;
+  });
+  projGen.addEventListener("click", async () => {
+    projGen.disabled = true;
+    projStatus.className = "slack-action-status";
+    projStatus.textContent = "Generating…";
+    try {
+      const r = await api("POST", "/api/plan/project/generate", {});
+      projTa.value = r.markdown || "";
+      projStatus.className = "slack-action-status success";
+      projStatus.textContent = "Generated.";
+    } catch (e) {
+      projStatus.className = "slack-action-status error";
+      projStatus.textContent = "Failed: " + e.message;
+    }
+    projGen.disabled = false;
+  });
+
+  // Weekly plan
+  const wkGrp = el("div", "field-group");
+  wkGrp.appendChild(el("label", "field-label", "This week's plan"));
+  const wkTa = el("textarea", "field-input prompt-input");
+  wkTa.rows = 10;
+  wkTa.placeholder = "# Week of …";
+  wkGrp.appendChild(wkTa);
+  const wkActions = el("div", "week-actions");
+  const wkSave = el("button", "btn-secondary", "Save weekly plan");
+  const wkStatus = el("span", "slack-action-status", "");
+  wkActions.appendChild(wkSave);
+  wkActions.appendChild(wkStatus);
+  wkGrp.appendChild(wkActions);
+  plansSec.appendChild(wkGrp);
+
+  let planWeekOf = null;
+  wkSave.addEventListener("click", async () => {
+    wkSave.disabled = true;
+    wkStatus.className = "slack-action-status";
+    wkStatus.textContent = "Saving…";
+    try {
+      await api("POST", "/api/plan/week", { markdown: wkTa.value, weekOf: planWeekOf });
+      wkStatus.className = "slack-action-status success";
+      wkStatus.textContent = "Saved.";
+    } catch (e) {
+      wkStatus.className = "slack-action-status error";
+      wkStatus.textContent = "Failed: " + e.message;
+    }
+    wkSave.disabled = false;
+  });
+
+  // Load current contents.
+  api("GET", "/api/plan/project")
+    .then((r) => { projTa.value = r.markdown || ""; projectPrompt = r.prompt || ""; })
+    .catch(() => {});
+  api("GET", "/api/plan/week")
+    .then((r) => { wkTa.value = r.markdown || ""; planWeekOf = r.weekOf; })
+    .catch(() => {});
+
+  container.appendChild(plansSec);
 
   // ── Save ──
   const resultArea = el("div");

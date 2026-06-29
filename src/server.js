@@ -330,6 +330,21 @@ async function handleRequest(req, res) {
     // Merge patch into config (never clobbers unrelated fields).
     deepMerge(cfg, body);
 
+    // Normalize the roots registry and keep legacy cfg.root in sync so the
+    // REQUIRED check and older readers keep working.
+    if (Array.isArray(cfg.roots)) {
+      cfg.roots = cfg.roots
+        .filter((r) => r && r.path)
+        .map((r, i) => ({
+          id: r.id || `r${i + 1}`,
+          type: r.type || "local",
+          path: r.path,
+          label: r.label || path.basename(r.path),
+          summary: r.summary || "",
+        }));
+      if (cfg.roots[0]) cfg.root = cfg.roots[0].path;
+    }
+
     // If an instructor preference field was supplied, mark the source.
     if (hasPrefField) {
       if (!cfg.instructor || typeof cfg.instructor !== "object") cfg.instructor = {};
@@ -586,6 +601,165 @@ async function handleRequest(req, res) {
     } catch (e) {
       if (!res.headersSent) apiError(res, 500, e.message);
     }
+    return;
+  }
+
+  // ── Weekly objectives (the agenda) ──────────────────────────────────────────
+
+  // GET /api/week — current weekly plan view + meta for the check-in panel.
+  if (req.method === "GET" && pathname === "/api/week") {
+    const cfg = core.loadConfig() || {};
+    const state = core.loadState();
+    const weekOf = core.plan.mondayOf(core.today());
+    const md = core.plan.readWeeklyPlan(weekOf);
+    const view = core.plan.weeklyView(md);
+    const wp = state.weeklyPriorities || {};
+    json(res, 200, {
+      weekOf,
+      exists: !!md.trim(),
+      objectives: view.objectives,
+      progress: view.progress,
+      blockers: view.blockers,
+      whereToLook: view.whereToLook,
+      daily: view.daily,
+      slackEnabled: cfg.chatSurface === "slack",
+      awaitingInstructor: !!wp.awaitingInstructor,
+      source: wp.source || null,
+    });
+    return;
+  }
+
+  // POST /api/week/objectives — set (replace) this week's objectives manually.
+  if (req.method === "POST" && pathname === "/api/week/objectives") {
+    let body = {};
+    try { body = JSON.parse(await readBody(req)); } catch { apiError(res, 400, "invalid JSON"); return; }
+    const items = Array.isArray(body.objectives) ? body.objectives : [];
+    const state = core.loadState();
+    const weekOf = core.plan.mondayOf(core.today());
+    core.plan.mergeIntoWeeklyPlan(weekOf, { setObjectives: items, date: core.today() });
+    state.weeklyPriorities = { weekOf, source: "manual", setOn: core.today(), awaitingInstructor: false };
+    core.saveState(state);
+    json(res, 200, {
+      ok: true,
+      weekOf,
+      objectives: core.plan.weeklyView(core.plan.readWeeklyPlan(weekOf)).objectives,
+    });
+    return;
+  }
+
+  // POST /api/week/suggest — provider proposes a short shortlist (no write).
+  if (req.method === "POST" && pathname === "/api/week/suggest") {
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    try {
+      const objectives = await core.runSuggestObjectives(cfg);
+      json(res, 200, { objectives });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // POST /api/week/ask-instructor — DM the instructor for this week's priorities.
+  if (req.method === "POST" && pathname === "/api/week/ask-instructor") {
+    let body = {};
+    try { const raw = await readBody(req); if (raw && raw.trim()) body = JSON.parse(raw); } catch {}
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      let suggestions = Array.isArray(body.suggestions) ? body.suggestions : null;
+      if (!suggestions) {
+        try { suggestions = await core.runSuggestObjectives(cfg); } catch { suggestions = []; }
+      }
+      const result = await slackActions.askInstructorObjectives(cfg, { suggestions });
+      const weekOf = core.plan.mondayOf(core.today());
+      state.slack = state.slack || {};
+      state.slack.priorityAskedTs = result.ts;
+      state.weeklyPriorities = {
+        weekOf, source: "instructor", setOn: null, awaitingInstructor: true, suggested: suggestions,
+      };
+      core.saveState(state);
+      json(res, 200, { ok: true, suggestions });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // POST /api/week/collect — read the instructor's reply and set objectives.
+  if (req.method === "POST" && pathname === "/api/week/collect") {
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      const { messages } = await slackActions.collectObjectiveReplies(cfg, state);
+      const latest = messages.length ? messages[messages.length - 1] : null;
+      const items = latest ? core.plan.parseObjectiveReply(latest.text) : [];
+      if (!items.length) { json(res, 200, { collected: false }); return; }
+      const weekOf = core.plan.mondayOf(core.today());
+      core.plan.mergeIntoWeeklyPlan(weekOf, { setObjectives: items, date: core.today() });
+      state.weeklyPriorities = { weekOf, source: "instructor", setOn: core.today(), awaitingInstructor: false };
+      core.saveState(state);
+      json(res, 200, { collected: true, objectives: items });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // ── Plan files (editable in Settings) ───────────────────────────────────────
+
+  // GET /api/plan/project — project plan markdown + the copy-prompt text.
+  if (req.method === "GET" && pathname === "/api/plan/project") {
+    const cfg = core.loadConfig() || {};
+    json(res, 200, {
+      markdown: core.plan.readProjectPlan(),
+      prompt: core.buildProjectPlanPrompt(cfg),
+    });
+    return;
+  }
+
+  // POST /api/plan/project — save edited project plan markdown.
+  if (req.method === "POST" && pathname === "/api/plan/project") {
+    let body = {};
+    try { body = JSON.parse(await readBody(req)); } catch { apiError(res, 400, "invalid JSON"); return; }
+    if (typeof body.markdown !== "string") { apiError(res, 400, "markdown (string) required"); return; }
+    core.plan.writeProjectPlan(body.markdown);
+    json(res, 200, { ok: true });
+    return;
+  }
+
+  // POST /api/plan/project/generate — (re)generate the project plan via provider.
+  if (req.method === "POST" && pathname === "/api/plan/project/generate") {
+    let body = {};
+    try { const raw = await readBody(req); if (raw && raw.trim()) body = JSON.parse(raw); } catch {}
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    try {
+      const markdown = await core.generateProjectPlan(cfg, { mode: body.mode });
+      json(res, 200, { ok: true, markdown });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // GET /api/plan/week[?weekOf=] — weekly plan markdown (defaults to current).
+  if (req.method === "GET" && pathname === "/api/plan/week") {
+    const weekOf = url.searchParams.get("weekOf") || core.plan.mondayOf(core.today());
+    json(res, 200, { weekOf, markdown: core.plan.readWeeklyPlan(weekOf) });
+    return;
+  }
+
+  // POST /api/plan/week — save edited weekly plan markdown.
+  if (req.method === "POST" && pathname === "/api/plan/week") {
+    let body = {};
+    try { body = JSON.parse(await readBody(req)); } catch { apiError(res, 400, "invalid JSON"); return; }
+    if (typeof body.markdown !== "string") { apiError(res, 400, "markdown (string) required"); return; }
+    const weekOf = body.weekOf || core.plan.mondayOf(core.today());
+    core.plan.writeWeeklyPlan(weekOf, body.markdown);
+    json(res, 200, { ok: true, weekOf });
     return;
   }
 

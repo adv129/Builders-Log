@@ -187,6 +187,47 @@ async function collectInstructorAnswers(cfg, state) {
 }
 
 /**
+ * askInstructorObjectives(cfg, { suggestions }) -> Promise<{ ok, channel, ts }>
+ *
+ * DM the instructor asking for this week's priorities, optionally seeded with a
+ * short shortlist the agent proposed. The instructor replies in free text;
+ * collectObjectiveReplies reads the answer.
+ */
+async function askInstructorObjectives(cfg, { suggestions } = {}) {
+  const userId = requireSlack(cfg, "instructorUserId");
+
+  const builderName = (cfg.builder && cfg.builder.name) || "your builder";
+  const list = (suggestions || []).length
+    ? `Here's a quick shortlist I'm seeing:\n${suggestions.map((s, i) => `${i + 1}. ${s}`).join("\n")}\n\n`
+    : "";
+
+  const text =
+    `Setting this week's priorities for ${builderName}.\n\n` +
+    `${list}` +
+    `What should ${builderName} focus on this week? Reply with the priorities that matter — ` +
+    `edit or add freely. A short, high-level list is perfect.`;
+
+  const { channel, ts } = await sendToUser(userId, text);
+  return { ok: true, channel, ts };
+}
+
+/**
+ * collectObjectiveReplies(cfg, state) -> Promise<{ channel, messages }>
+ *
+ * Read instructor replies since state.slack.priorityAskedTs (set when the
+ * objectives ask was sent). Returns messages only; caller parses + applies.
+ */
+async function collectObjectiveReplies(cfg, state) {
+  const userId = requireSlack(cfg, "instructorUserId");
+
+  const channel = await openDm(userId);
+  const since = (state.slack && state.slack.priorityAskedTs) || "0";
+  const messages = await historySince(channel, since);
+
+  return { channel, messages };
+}
+
+/**
  * checkConnection() -> Promise<{ connected, reason?, message, team?, botUser?, botUserId? }>
  *
  * Non-throwing probe for the web UI: answers "is the Slack bot token wired up
@@ -230,5 +271,7 @@ module.exports = {
   sendInstructorNote,
   askInstructor,
   collectInstructorAnswers,
+  askInstructorObjectives,
+  collectObjectiveReplies,
   checkConnection,
 };

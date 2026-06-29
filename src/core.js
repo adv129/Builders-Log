@@ -33,10 +33,11 @@
 const fs = require("fs");
 const path = require("path");
 
-const { snapshot, diff } = require("./observe");
+const { snapshot, diff, parseKey } = require("./observe");
 const { complete } = require("./provider");
-const { applyExtraction, bumpChurn, historyView } = require("./track");
-const { THESIS, askQuestions, extractFacts, synthesizeEntry } = require("./templates/index");
+const { bumpChurn, historyView } = require("./track");
+const { THESIS, askQuestions, extractFacts, synthesizeEntry, projectPlanPrompt, suggestObjectives } = require("./templates/index");
+const plan = require("./plan");
 
 // ---------------------------------------------------------------------------
 // Path constants — everything relative to the repo root, not src/
@@ -84,22 +85,62 @@ function extractInstructorSection(entry) {
 }
 
 /**
- * Read the content of every changed file (truncated to MAX_EXCERPT).
- * Returns { relPath: { change, excerpt, truncated } }.
+ * rootsOf(cfg) -> [{ id, type, path, label, summary }]
+ *
+ * The tracked-roots registry. Falls back to the legacy single `cfg.root` so
+ * older configs keep working until they're migrated on the next save.
  */
-function gatherDelta(root, d) {
+function rootsOf(cfg) {
+  if (cfg && Array.isArray(cfg.roots) && cfg.roots.length) return cfg.roots;
+  if (cfg && cfg.root) {
+    return [{ id: "r1", type: "local", path: cfg.root, label: path.basename(cfg.root), summary: "" }];
+  }
+  return [];
+}
+
+/**
+ * isInsideRoots(absPath, cfg) -> boolean
+ *
+ * True if absPath resolves inside any registered work root. Used to enforce the
+ * read-only-after-onboarding rule: normal operation must never write into work
+ * dirs (only the onboarding scaffold step is exempt, and calls fs directly).
+ */
+function isInsideRoots(absPath, cfg) {
+  const p = path.resolve(absPath);
+  return rootsOf(cfg).some((r) => {
+    if (!r.path) return false;
+    const base = path.resolve(r.path);
+    return p === base || p.startsWith(base + path.sep);
+  });
+}
+
+/**
+ * Read the content of every changed file (truncated to MAX_EXCERPT).
+ * `cfg` carries the roots registry so namespaced keys (`<rootId>/<rel>`) resolve
+ * to the right absolute path. Returns { displayPath: { change, excerpt,
+ * truncated, root, rel } }, displayPath being "<rootLabel>/<rel>".
+ */
+function gatherDelta(cfg, d) {
+  const roots = rootsOf(cfg);
+  const byId = Object.fromEntries(roots.map((r) => [r.id, r]));
   const files = {};
-  for (const rel of [...d.added, ...d.modified]) {
+  for (const key of [...d.added, ...d.modified]) {
+    const { rootId, rel } = parseKey(key);
+    const root = byId[rootId] || roots[0] || null;
+    const abs = root ? path.join(root.path, rel) : rel;
     let content = "";
     try {
-      content = fs.readFileSync(path.join(root, rel), "utf8");
+      content = fs.readFileSync(abs, "utf8");
     } catch {
       content = "(could not read)";
     }
-    files[rel] = {
-      change: d.added.includes(rel) ? "new" : "modified",
+    const display = root && root.label ? `${root.label}/${rel}` : key;
+    files[display] = {
+      change: d.added.includes(key) ? "new" : "modified",
       excerpt: content.slice(0, MAX_EXCERPT),
       truncated: content.length > MAX_EXCERPT,
+      root: rootId,
+      rel,
     };
   }
   return files;
@@ -138,33 +179,22 @@ function buildChatFromAnswers(date, answers) {
  * Build the historyContext string passed to synthesizeEntry.
  * Contains raw accumulated facts + instructor preferences (no pre-judgments).
  */
-function buildHistoryContext(cfg, state, view, date) {
+function buildHistoryContext(cfg, state, week, date) {
   const recentInstructor = (state.instructorThread || []).slice(-3);
+  const objLine = (week.objectives || [])
+    .map((o) => `${o.done ? "[done] " : "[ ] "}"${o.text}"`)
+    .join("; ");
+  const blkLine = (week.blockers || [])
+    .map((b) => `"${b.text}" (seen ${b.count}x${b.since ? `, since ${b.since}` : ""})`)
+    .join("; ");
+  const progLine = (week.progress || []).slice(-8).map((p) => `"${p}"`).join("; ");
 
   return (
-    `HISTORY CONTEXT (raw accumulated facts — NOT pre-judged):\n` +
-    `- Open commitments: ${
-      view.openCommitments.length
-        ? view.openCommitments
-            .map(
-              (c) =>
-                `${c.id} "${c.text}" (opened ${c.openedOn}, ${c.daysOpen}d ago, carried ${c.carried}x, evidence: ${c.hasEvidence ? "yes" : "none"}${c.due ? `, due ${c.due}` : ""})`
-            )
-            .join("; ")
-        : "none"
-    }\n` +
-    `- Blockers seen: ${
-      view.blockers.length
-        ? view.blockers
-            .map((b) => `"${b.text}" (seen ${b.count}x, last ${b.lastSeen})`)
-            .join("; ")
-        : "none"
-    }\n` +
-    `- File churn: ${
-      view.churn.length
-        ? view.churn.map((c) => `${c.file} (${c.changes} changes)`).join("; ")
-        : "none"
-    }\n` +
+    `WEEK CONTEXT (this week's plan — NOT pre-judged):\n` +
+    `- Objectives: ${objLine || "none set"}\n` +
+    `- Recent progress: ${progLine || "none"}\n` +
+    `- Blockers: ${blkLine || "none"}\n` +
+    `- Where to look: ${(week.whereToLook || []).join("; ") || "n/a"}\n` +
     `Instructor cares about: ${(cfg.instructor?.caresAbout || []).join("; ") || "n/a"}. ` +
     `Wants flagged early: ${(cfg.instructor?.wantsFlaggedEarly || []).join("; ") || "n/a"}.` +
     `${
@@ -177,10 +207,10 @@ function buildHistoryContext(cfg, state, view, date) {
         ? recentInstructor.map((m) => `"${m.text}"`).join("; ")
         : "none"
     }\n` +
-    `Using this history together with the instructor's priorities and the builder's context, YOU decide ` +
-    `what is significant — which commitments are stalling, which blockers are worth escalating, what to ` +
-    `surface to the instructor. Do not apply fixed day thresholds; judge from the trajectory and what ` +
-    `this instructor said they care about.`
+    `Using this week's objectives together with the builder's progress and what this instructor said ` +
+    `they care about, YOU decide what is significant — which objectives are stalling, which blockers ` +
+    `are worth escalating, what to surface to the instructor. Do not apply fixed day thresholds; judge ` +
+    `from the trajectory.`
   );
 }
 
@@ -190,7 +220,30 @@ function buildHistoryContext(cfg, state, view, date) {
 
 /** Load config.json; returns null if missing or invalid. */
 function loadConfig() {
-  return readJson(CONFIG_PATH, null);
+  const cfg = readJson(CONFIG_PATH, null);
+  return cfg ? migrateConfig(cfg) : null;
+}
+
+/**
+ * In-memory migration: ensure the roots registry exists and is well-formed.
+ * Non-destructive — does not rewrite config.json; the next save persists it.
+ * Legacy single `cfg.root` becomes roots[0]; `cfg.root` is kept in sync so old
+ * readers (CLI validate, server REQUIRED check) keep working.
+ */
+function migrateConfig(cfg) {
+  let roots = Array.isArray(cfg.roots) ? cfg.roots : [];
+  if (!roots.length && cfg.root) {
+    roots = [{ id: "r1", type: "local", path: cfg.root }];
+  }
+  cfg.roots = roots.map((r, i) => ({
+    id: r.id || `r${i + 1}`,
+    type: r.type || "local",
+    path: r.path,
+    label: r.label || (r.path ? path.basename(r.path) : `root ${i + 1}`),
+    summary: r.summary || "",
+  }));
+  if (!cfg.root && cfg.roots[0]) cfg.root = cfg.roots[0].path;
+  return cfg;
 }
 
 /** Load state.json; returns a safe empty state if missing or invalid. */
@@ -218,7 +271,7 @@ function today() {
 
 /** Ensure all data directories exist under ROOT. */
 function ensureDirs() {
-  for (const d of ["raw/work", "raw/chat", "raw/instructor", "log", "reports"]) {
+  for (const d of ["raw/work", "raw/chat", "raw/instructor", "log", "reports", "plan"]) {
     fs.mkdirSync(path.join(ROOT, d), { recursive: true });
   }
 }
@@ -250,8 +303,7 @@ function ensureDirs() {
  * }
  */
 async function runAsk(cfg, state) {
-  const root = cfg.root;
-  const curr = snapshot(root);
+  const curr = snapshot(rootsOf(cfg));
   const d = diff(state.files, curr);
   const date = today();
   const changed = [...d.added, ...d.modified];
@@ -260,13 +312,15 @@ async function runAsk(cfg, state) {
     return { changed: false, date, questions: null, questionList: [], files: {}, delta: d };
   }
 
-  const files = gatherDelta(root, d);
+  const files = gatherDelta(cfg, d);
   const deltaText = deltaForPrompt(files);
 
+  const week = plan.weeklyView(plan.readWeeklyPlan(plan.mondayOf(date)));
   const prompts = cfg.prompts || {};
   const prompt = askQuestions({
     thesis: prompts.thesis || THESIS,
-    openCommitments: state.commitments || [],
+    objectives: week.objectives,
+    blockers: week.blockers,
     deltaText,
     deleted: d.deleted,
     guidance: prompts.askGuidance,
@@ -283,7 +337,7 @@ async function runAsk(cfg, state) {
   // RAW: persist the work delta verbatim.
   fs.writeFileSync(
     path.join(ROOT, "raw", "work", `${date}.json`),
-    JSON.stringify({ date, root, ...d, files }, null, 2) + "\n"
+    JSON.stringify({ date, roots: rootsOf(cfg).map((r) => r.path), ...d, files }, null, 2) + "\n"
   );
 
   // RAW: open the chat transcript with the questions + blank answer slots.
@@ -355,14 +409,15 @@ async function runSync(cfg, state, input) {
 
   const work = readJson(workPath, {});
   const changedFiles = Object.keys(work.files || {});
-  const openBefore = (state.commitments || []).filter((c) => c.status === "open");
+  const weekOf = plan.mondayOf(date);
+  const weekBefore = plan.weeklyView(plan.readWeeklyPlan(weekOf));
 
-  // --- Step A: extract structured facts (memory update) ---
+  // --- Step A: extract structured facts against this week's objectives ---
   const prompts = cfg.prompts || {};
   const exPrompt = extractFacts({
     thesis: prompts.thesis || THESIS,
     date,
-    openCommitments: openBefore,
+    objectives: weekBefore.objectives,
     chat,
     changedFiles,
   });
@@ -370,13 +425,19 @@ async function runSync(cfg, state, input) {
   const extraction =
     parseJsonLoose(await complete(exPrompt, { provider: cfg.provider, config: cfg })) || {};
 
-  // --- Step B: apply extraction + bump churn ---
-  applyExtraction(state, extraction, date);
+  // --- Step B: merge facts into the weekly plan (markdown-first source of truth) ---
   bumpChurn(state, changedFiles);
-  const view = historyView(state, date);
+  plan.mergeIntoWeeklyPlan(weekOf, {
+    date,
+    progress: extraction.progress || [],
+    checkObjectives: extraction.resolvedObjectives || [],
+    blockers: extraction.blockers || [],
+    dailySummary: extraction.summary ? { date, text: extraction.summary } : null,
+  });
+  const week = plan.weeklyView(plan.readWeeklyPlan(weekOf));
 
   // --- Step C: synthesize the entry ---
-  const historyContext = buildHistoryContext(cfg, state, view, date);
+  const historyContext = buildHistoryContext(cfg, state, week, date);
 
   const synthPrompt = synthesizeEntry({
     thesis: prompts.thesis || THESIS,
@@ -412,17 +473,18 @@ async function runSync(cfg, state, input) {
   }
 
   // Commit the file snapshot so the next run only sees genuinely new changes.
-  state.files = snapshot(cfg.root);
+  state.files = snapshot(rootsOf(cfg));
   state.lastRun = new Date().toISOString();
   // Clean up legacy orphaned flags from older state shapes.
   delete state.lastFlags;
   saveState(state);
 
-  const resolvedThisRun = (extraction.resolved || []).length;
-  const openCount = (state.commitments || []).filter((c) => c.status === "open").length;
+  const resolvedThisRun = (extraction.resolvedObjectives || []).length;
+  const openCount = (week.objectives || []).filter((o) => !o.done).length;
 
   return {
     date,
+    weekOf,
     entry,
     logPath,
     instructorDraft: instructorDraft || "",
@@ -430,7 +492,7 @@ async function runSync(cfg, state, input) {
     memory: {
       open: openCount,
       resolvedThisRun,
-      blockers: (state.blockers || []).length,
+      blockers: (week.blockers || []).length,
     },
   };
 }
@@ -474,6 +536,65 @@ function statusView(cfg, state) {
 }
 
 // ---------------------------------------------------------------------------
+// Project plan (high-level, weekly-refresh) + onboarding helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * buildProjectPlanPrompt(cfg, { mode }) -> string
+ * The canonical prompt that (re)generates plan/project.md. Returned verbatim to
+ * the UI for the "Copy prompt" button, and used by generateProjectPlan().
+ */
+function buildProjectPlanPrompt(cfg, opts = {}) {
+  const dirs = rootsOf(cfg).map((r) => ({ path: r.path, label: r.label }));
+  return projectPlanPrompt({ cfg, dirs, mode: opts.mode });
+}
+
+/**
+ * runSuggestObjectives(cfg) -> Promise<string[]>
+ * Ask the provider for a short (≤3) high-level objective shortlist for this week,
+ * grounded in the project plan + recent progress/blockers. Does not write state.
+ */
+async function runSuggestObjectives(cfg) {
+  const weekOf = plan.mondayOf(today());
+  const week = plan.weeklyView(plan.readWeeklyPlan(weekOf));
+  const prompt = suggestObjectives({
+    thesis: (cfg.prompts && cfg.prompts.thesis) || THESIS,
+    projectPlan: plan.readProjectPlan(),
+    recentProgress: (week.progress || []).slice(-8),
+    blockers: (week.blockers || []).map((b) => b.text),
+  });
+  const out = parseJsonLoose(await complete(prompt, { provider: cfg.provider, config: cfg })) || {};
+  return Array.isArray(out.objectives) ? out.objectives.slice(0, 3) : [];
+}
+
+/** Generate plan/project.md via the provider and write it. Returns the text. */
+async function generateProjectPlan(cfg, opts = {}) {
+  const prompt = buildProjectPlanPrompt(cfg, opts);
+  const text = await complete(prompt, { provider: cfg.provider, config: cfg });
+  plan.writeProjectPlan(text);
+  return text;
+}
+
+/**
+ * scaffoldDirs(basePath, names) -> string[] (created absolute paths)
+ *
+ * THE ONE sanctioned write into work space (greenfield onboarding only). Creates
+ * the proposed folder layout under basePath. Normal operation never writes into
+ * roots — see isInsideRoots().
+ */
+function scaffoldDirs(basePath, names) {
+  const created = [];
+  for (const n of names || []) {
+    const safe = String(n).replace(/[^\w\-./ ]/g, "").replace(/\.{2,}/g, ".").replace(/^\/+/, "");
+    if (!safe) continue;
+    const abs = path.join(basePath, safe);
+    fs.mkdirSync(abs, { recursive: true });
+    created.push(abs);
+  }
+  return created;
+}
+
+// ---------------------------------------------------------------------------
 // Exports
 // ---------------------------------------------------------------------------
 
@@ -484,9 +605,20 @@ module.exports = {
   saveState,
   today,
   ensureDirs,
+  // Roots registry
+  rootsOf,
+  isInsideRoots,
   // Pipeline
   runAsk,
   runSync,
+  // Project plan + onboarding
+  buildProjectPlanPrompt,
+  generateProjectPlan,
+  scaffoldDirs,
+  // Weekly objectives
+  runSuggestObjectives,
+  // Plan-file layer (re-exported for surfaces)
+  plan,
   // Read-only
   statusView,
   // Expose ROOT for surfaces that need to build relative paths for display

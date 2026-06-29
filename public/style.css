@@ -502,6 +502,58 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 
 .commitment-meta { font-size: 0.78rem; color: var(--muted); margin: 0; }
 
+.commitment-text.done { color: var(--muted); text-decoration: line-through; }
+
+/* ── "This week" panel (check-in screen) ── */
+.week-panel { margin-top: 1.25rem; }
+.week-head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.6rem;
+  flex-wrap: wrap;
+}
+.week-objectives,
+.week-progress,
+.week-blockers,
+.week-where {
+  list-style: none;
+  padding: 0;
+  margin: 0.25rem 0 0.75rem;
+  display: flex;
+  flex-direction: column;
+  gap: 0.3rem;
+}
+.week-objectives li,
+.week-progress li,
+.week-blockers li,
+.week-where li {
+  font-size: 0.9rem;
+  padding: 0.4rem 0.6rem;
+  background: var(--bg2);
+  border: 1.5px solid var(--hair);
+  border-radius: var(--radius-sm);
+}
+.week-objectives li.done { color: var(--muted); text-decoration: line-through; }
+.week-actions {
+  display: flex;
+  gap: 0.5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  margin-top: 0.5rem;
+}
+
+/* ── Plans (settings) ── */
+.project-plan-disclosure summary {
+  cursor: pointer;
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--muted);
+  font-weight: 700;
+}
+.prompt-reset svg { vertical-align: -2px; margin-right: 2px; }
+
 .churn-table { display: flex; flex-direction: column; gap: 0.25rem; }
 .churn-row {
   display: flex;

@@ -1,16 +1,22 @@
 /*
  * Builder Log Agent — Observer (src/).
  *
- * Detects which LOCAL files in the working folder changed since the last run,
- * by diffing the current tree against a snapshot stored in state.json.
+ * Detects which LOCAL files in the tracked work folders changed since the last
+ * run, by diffing the current tree against a snapshot stored in state.json.
  *
- * Pure library module: snapshot(root) and diff(prev, curr) are stateless
+ * Pure library module: snapshot(roots) and diff(prev, curr) are stateless
  * functions. All path resolution for data files (state.json) is the caller's
  * responsibility. This module never reads or writes files itself.
  *
+ * Multi-root: snapshot accepts EITHER a single string path (legacy — bare
+ * relative-path keys) OR an array of root descriptors `{ id, path }` (the
+ * registry form — keys are namespaced as `<rootId>/<relPath>` so files from
+ * different roots never collide). makeKey/parseKey convert between the two.
+ *
  * NOTE: ROOT (the agent repo directory) is path.resolve(__dirname, "..") because
- * this file lives in src/. The scanningSelf guard compares the watch root to ROOT
- * so agent-owned files are skipped when someone points root at the agent folder.
+ * this file lives in src/. The scanningSelf guard compares each watch root to
+ * ROOT so agent-owned files are skipped when someone points a root at the agent
+ * folder.
  */
 
 "use strict";
@@ -36,6 +42,7 @@ const AGENT_FILES = new Set([
   "log",
   "raw",
   "reports",
+  "plan",
   // Misc root files
   "config.json",
   "config.example.json",
@@ -49,10 +56,41 @@ const AGENT_FILES = new Set([
   "demo_project",
 ]);
 
-// Recursively collect work files → { relPath: mtimeMs }.
-function snapshot(root) {
-  const out = {};
-  const scanningSelf = path.resolve(root) === ROOT;
+// ---------------------------------------------------------------------------
+// Namespaced keys: "<rootId>/<relPath>". rootId never contains "/", so the
+// first "/" always separates the id from the (possibly nested) relative path.
+// ---------------------------------------------------------------------------
+
+function makeKey(rootId, rel) {
+  return rootId ? `${rootId}/${rel}` : rel;
+}
+
+function parseKey(key) {
+  const i = key.indexOf("/");
+  if (i === -1) return { rootId: null, rel: key };
+  return { rootId: key.slice(0, i), rel: key.slice(i + 1) };
+}
+
+/**
+ * Normalize the `roots` argument into a list of { id, path } descriptors.
+ * Accepts: a string, an array of strings, or an array of { id, path } objects.
+ */
+function normalizeRoots(roots) {
+  if (typeof roots === "string") return [{ id: null, path: roots }];
+  if (!Array.isArray(roots)) return [];
+  return roots
+    .map((r, i) => {
+      if (typeof r === "string") return { id: `r${i + 1}`, path: r };
+      if (r && typeof r.path === "string") return { id: r.id || `r${i + 1}`, path: r.path };
+      return null;
+    })
+    .filter(Boolean);
+}
+
+// Recursively collect work files in one root → mutate `out` with mtimeMs.
+// `id` namespaces the keys; pass null for legacy bare-key behavior.
+function scanRoot(base, id, out) {
+  const scanningSelf = path.resolve(base) === ROOT;
   (function walk(dir) {
     let entries;
     try {
@@ -68,11 +106,24 @@ function snapshot(root) {
       if (e.isDirectory()) {
         walk(full);
       } else if (e.isFile()) {
-        const rel = path.relative(root, full);
-        out[rel] = fs.statSync(full).mtimeMs;
+        const rel = path.relative(base, full);
+        out[makeKey(id, rel)] = fs.statSync(full).mtimeMs;
       }
     }
-  })(root);
+  })(base);
+  return out;
+}
+
+/**
+ * snapshot(roots) -> { key: mtimeMs }
+ *
+ * roots: a single string path (bare keys) or an array of { id, path } / strings
+ * (keys namespaced as `<rootId>/<rel>`).
+ */
+function snapshot(roots) {
+  if (typeof roots === "string") return scanRoot(roots, null, {});
+  const out = {};
+  for (const r of normalizeRoots(roots)) scanRoot(r.path, r.id, out);
   return out;
 }
 
@@ -89,4 +140,4 @@ function diff(prev, curr) {
   return { isFirstRun, added: added.sort(), modified: modified.sort(), deleted: deleted.sort() };
 }
 
-module.exports = { snapshot, diff };
+module.exports = { snapshot, diff, makeKey, parseKey, normalizeRoots };

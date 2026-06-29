@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { snapshot, diff } = require("../src/observe");
+const { snapshot, diff, makeKey, parseKey } = require("../src/observe");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -225,6 +225,41 @@ describe("snapshot — ignore rules", () => {
     } finally {
       rmTmp(tmpDir);
     }
+  });
+});
+
+describe("snapshot — multi-root registry", () => {
+  test("namespaces keys by root id and keeps roots separate", () => {
+    const a = makeTmpDir();
+    const b = makeTmpDir();
+    try {
+      // Same relative filename in both roots — must NOT collide.
+      fs.writeFileSync(path.join(a, "README.md"), "a");
+      fs.writeFileSync(path.join(b, "README.md"), "b");
+      const snap = snapshot([{ id: "r1", path: a }, { id: "r2", path: b }]);
+      assert.ok("r1/README.md" in snap, "root a namespaced");
+      assert.ok("r2/README.md" in snap, "root b namespaced");
+      assert.equal(Object.keys(snap).length, 2, "both tracked, no collision");
+    } finally {
+      rmTmp(a);
+      rmTmp(b);
+    }
+  });
+
+  test("string root keeps legacy bare keys (back-compat)", () => {
+    const a = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(a, "x.js"), "x");
+      const snap = snapshot(a);
+      assert.ok("x.js" in snap, "bare key, no namespace");
+    } finally {
+      rmTmp(a);
+    }
+  });
+
+  test("parseKey/makeKey round-trip with nested paths", () => {
+    assert.deepEqual(parseKey(makeKey("r1", "src/a/b.js")), { rootId: "r1", rel: "src/a/b.js" });
+    assert.deepEqual(parseKey("bare.js"), { rootId: null, rel: "bare.js" });
   });
 });
 

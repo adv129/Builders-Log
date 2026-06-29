@@ -18,6 +18,8 @@ const {
   synthesizeEntry,
   INSTRUCTOR_QUESTIONS,
   instructorDoc,
+  projectPlanPrompt,
+  PROJECT_PLAN_FORMAT,
 } = require("../src/templates/index");
 
 // ---------------------------------------------------------------------------
@@ -64,7 +66,8 @@ describe("askQuestions", () => {
       Object.assign(
         {
           thesis: THESIS,
-          openCommitments: [{ id: "c1", text: "write tests" }],
+          objectives: [{ text: "ship onboarding", done: false }],
+          blockers: [{ text: "API rate limit" }],
           deltaText,
           deleted: [],
         },
@@ -108,9 +111,9 @@ describe("askQuestions", () => {
     );
   });
 
-  test("embeds the open commitments JSON", () => {
-    assert.ok(prompt.includes("c1"), "should embed commitment id");
-    assert.ok(prompt.includes("write tests"), "should embed commitment text");
+  test("embeds this week's objectives", () => {
+    assert.ok(prompt.includes("objectives"), "should label objectives");
+    assert.ok(prompt.includes("ship onboarding"), "should embed objective text");
   });
 
   test("embeds the delta text", () => {
@@ -139,7 +142,7 @@ describe("extractFacts", () => {
         {
           thesis: THESIS,
           date: "2024-01-10",
-          openCommitments: [{ id: "c1", text: "write tests" }],
+          objectives: [{ text: "ship the API", done: false }],
           chat: "Q: What did you build?\nA: A new API endpoint.",
           changedFiles: ["src/server.js"],
         },
@@ -164,16 +167,20 @@ describe("extractFacts", () => {
     assert.ok(lower.includes("no code fence"), "should say no code fence");
   });
 
-  test("schema includes 'resolved' field", () => {
-    assert.ok(prompt.includes('"resolved"'), 'schema must include "resolved"');
+  test("schema includes 'progress' field", () => {
+    assert.ok(prompt.includes('"progress"'), 'schema must include "progress"');
   });
 
-  test("schema includes 'newCommitments' field", () => {
-    assert.ok(prompt.includes('"newCommitments"'), 'schema must include "newCommitments"');
+  test("schema includes 'resolvedObjectives' field", () => {
+    assert.ok(prompt.includes('"resolvedObjectives"'), 'schema must include "resolvedObjectives"');
   });
 
   test("schema includes 'blockers' field", () => {
     assert.ok(prompt.includes('"blockers"'), 'schema must include "blockers"');
+  });
+
+  test("schema includes 'summary' field", () => {
+    assert.ok(prompt.includes('"summary"'), 'schema must include "summary"');
   });
 
   test("specifies real evidence required (not mere intent)", () => {
@@ -188,8 +195,8 @@ describe("extractFacts", () => {
     assert.ok(prompt.includes("2024-01-10"), "should include the date");
   });
 
-  test("embeds the open commitments", () => {
-    assert.ok(prompt.includes("c1"), "should embed commitment id");
+  test("embeds this week's objectives", () => {
+    assert.ok(prompt.includes("ship the API"), "should embed objective text");
   });
 
   test("includes the chat content", () => {
@@ -310,6 +317,38 @@ describe("synthesizeEntry", () => {
     const p = makePrompt({ historyContext: makeHistoryCtx(false) });
     assert.ok(!p.includes("DEFAULT preferences"),
       "should NOT include default-prefs note when not in historyContext");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectPlanPrompt
+// ---------------------------------------------------------------------------
+
+describe("projectPlanPrompt", () => {
+  const cfg = {
+    builder: { project: "A PBL tool", context: "solo" },
+    instructor: { currentGoal: "ship MVP" },
+  };
+
+  test("embeds the canonical format headings", () => {
+    const p = projectPlanPrompt({ cfg, dirs: [{ path: "/x", label: "x" }] });
+    for (const h of ["## Vision", "## Milestones", "## Workstreams", "## Where things live"]) {
+      assert.ok(p.includes(h), `should include ${h}`);
+      assert.ok(PROJECT_PLAN_FORMAT.includes(h));
+    }
+  });
+
+  test("existing mode forbids restructuring; scaffold mode proposes layout", () => {
+    const existing = projectPlanPrompt({ cfg, dirs: ["/x"], mode: "existing" });
+    assert.match(existing.toLowerCase(), /do not propose moving|restructuring/);
+    const scaffold = projectPlanPrompt({ cfg, dirs: [], mode: "scaffold" });
+    assert.match(scaffold.toLowerCase(), /propose a (simple )?folder layout|starting fresh/);
+  });
+
+  test("embeds project + dirs", () => {
+    const p = projectPlanPrompt({ cfg, dirs: [{ path: "/repo", label: "repo" }] });
+    assert.ok(p.includes("A PBL tool"));
+    assert.ok(p.includes("/repo"));
   });
 });
 
