@@ -234,6 +234,9 @@ function renderCheckin(container) {
     askResult: null,
     syncResult: null,
     pendingAnswers: null,  // string[] parallel to questionList
+    slackSent: false,      // questions DM'd to the builder's Slack this session
+    slackMsg: "",          // persistent status under the Slack button
+    slackMsgCls: "",       // status class (success/warn/error)
     error: null,
   };
 
@@ -246,9 +249,23 @@ function renderCheckin(container) {
     if (s.phase === "idle") {
       screen.appendChild(el("p", "screen-desc", "Record what you built, decided, or learned today."));
       if (s.error) screen.appendChild(errorBox(s.error));
+      const row = el("div", "generate-row");
       const btn = el("button", "btn-primary", "Start check-in");
       btn.addEventListener("click", doAsk);
-      screen.appendChild(btn);
+      row.appendChild(btn);
+
+      // In a rush? Do the whole check-in over Slack. First click generates the
+      // questions and DMs them to you; the button then becomes "Sync with Slack"
+      // and stays there until your reply comes back and the entry is generated.
+      if (appConfig && appConfig.chatSurface === "slack") {
+        const slackBtn = el("button", "btn-secondary", s.slackSent ? "Sync with Slack" : "Check-in via Slack");
+        const slackStatus = el("span", "slack-action-status" + (s.slackMsgCls ? " " + s.slackMsgCls : ""),
+          s.slackMsg || "");
+        slackBtn.addEventListener("click", () => doSlackCheckin(slackBtn, slackStatus));
+        row.appendChild(slackBtn);
+        row.appendChild(slackStatus);
+      }
+      screen.appendChild(row);
     }
 
     if (s.phase === "asking") {
@@ -385,6 +402,7 @@ function renderCheckin(container) {
       btn.addEventListener("click", () => {
         s.phase = "idle"; s.date = null; s.askResult = null;
         s.syncResult = null; s.pendingAnswers = null; s.error = null;
+        s.slackSent = false; s.slackMsg = ""; s.slackMsgCls = "";
         draw();
       });
       screen.appendChild(btn);
@@ -431,8 +449,68 @@ function renderCheckin(container) {
     draw();
   }
 
+  // Check-in via Slack: first click generates the questions and DMs them to the
+  // builder; the button then reads "Sync with Slack" and stays there until a
+  // reply comes back, at which point the entry is generated.
+  async function doSlackCheckin(btn, statusEl) {
+    btn.disabled = true;
+    statusEl.className = "slack-action-status";
+    try {
+      if (!s.slackSent) {
+        statusEl.textContent = "Preparing your check-in…";
+        const ask = await api("POST", "/api/ask");
+        if (!ask.changed) {
+          statusEl.className = "slack-action-status warn";
+          statusEl.textContent = "No new work since your last check-in.";
+          btn.disabled = false;
+          return;
+        }
+        s.askResult = ask;
+        s.date = ask.date;
+        statusEl.textContent = "Sending to Slack…";
+        await api("POST", "/api/checkin/send-slack", { questions: ask.questionList });
+        s.slackSent = true;
+        s.slackMsg = "Sent — answer in Slack, then click Sync with Slack.";
+        s.slackMsgCls = "success";
+        draw();
+      } else {
+        statusEl.textContent = "Looking for your Slack replies…";
+        const r = await api("POST", "/api/checkin/sync-slack");
+        if (!r.synced) {
+          statusEl.className = "slack-action-status warn";
+          statusEl.textContent = "No replies yet — answer in Slack, then click again.";
+          btn.disabled = false;
+        } else {
+          s.syncResult = r;
+          s.phase = "done";
+          draw();
+        }
+      }
+    } catch (e) {
+      statusEl.className = "slack-action-status error";
+      statusEl.textContent = "Failed: " + e.message;
+      btn.disabled = false;
+    }
+  }
+
   draw();
   drawWeekPanel(weekRoot);
+
+  // Resume an in-flight Slack check-in from server state, the same way the weekly
+  // panel reads awaitingInstructor — so the button shows "Sync with Slack" if a
+  // reply is still pending, even across reloads.
+  if (appConfig && appConfig.chatSurface === "slack") {
+    api("GET", "/api/checkin/status")
+      .then((st) => {
+        if (st.awaiting && s.phase === "idle" && !s.slackSent) {
+          s.slackSent = true;
+          s.slackMsg = "Answer in Slack, then click Sync with Slack.";
+          s.slackMsgCls = "success";
+          draw();
+        }
+      })
+      .catch(() => {});
+  }
 }
 
 // ── "This week" panel — objectives / progress / blockers, set via web or Slack ──
@@ -473,12 +551,8 @@ function drawWeekPanel(root) {
     if (st.error) panel.appendChild(errorBox(st.error));
 
     if (d.awaitingInstructor) {
-      panel.appendChild(infoBox("Waiting for your instructor's priorities in Slack."));
-      const row = el("div", "week-actions");
-      const checkBtn = el("button", "btn-secondary", "Check for reply");
-      checkBtn.addEventListener("click", collectReply);
-      row.appendChild(checkBtn);
-      panel.appendChild(row);
+      panel.appendChild(infoBox(
+        "Waiting for your instructor's priorities in Slack. Click “Sync with Slack” to pull their reply."));
     }
 
     if (st.mode === "edit") {
@@ -535,9 +609,9 @@ function drawWeekPanel(root) {
     });
     actions.appendChild(setBtn);
     if (d.slackEnabled) {
-      const askBtn = el("button", "btn-secondary", "Ask instructor via Slack");
-      askBtn.addEventListener("click", () => askInstructor(askBtn));
-      actions.appendChild(askBtn);
+      const syncBtn = el("button", "btn-secondary", "Sync with Slack");
+      syncBtn.addEventListener("click", () => slackSync(syncBtn));
+      actions.appendChild(syncBtn);
     }
     panel.appendChild(actions);
     root.appendChild(panel);
@@ -578,29 +652,28 @@ function drawWeekPanel(root) {
     btn.textContent = prev;
   }
 
-  async function askInstructor(btn) {
+  // Sync with Slack: if no ask is outstanding, DM the instructor for priorities;
+  // otherwise pull their reply and set this week's objectives.
+  async function slackSync(btn) {
     btn.disabled = true;
-    btn.textContent = "Asking…";
+    st.error = null;
+    const awaiting = st.data && st.data.awaitingInstructor;
+    btn.textContent = awaiting ? "Syncing…" : "Asking…";
     try {
-      await api("POST", "/api/week/ask-instructor", {});
-      load();
-    } catch (e) {
-      st.error = "Slack ask failed: " + e.message;
-      render();
-    }
-  }
-
-  async function collectReply() {
-    try {
-      const r = await api("POST", "/api/week/collect");
-      if (!r.collected) {
-        st.error = "No reply yet — try again in a moment.";
-        render();
-      } else {
+      if (!awaiting) {
+        await api("POST", "/api/week/ask-instructor", {});
         load();
+      } else {
+        const r = await api("POST", "/api/week/collect");
+        if (!r.collected) {
+          st.error = "No reply yet — try again in a moment.";
+          render();
+        } else {
+          load();
+        }
       }
     } catch (e) {
-      st.error = "Collect failed: " + e.message;
+      st.error = "Slack sync failed: " + e.message;
       render();
     }
   }
@@ -1417,7 +1490,7 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
       const pathSpan = el("span", "root-path", esc(r.path));
       if (i === 0) pathSpan.appendChild(el("span", "badge-rec", "primary"));
       top.appendChild(pathSpan);
-      const rm = el("button", "btn-ghost", "Remove");
+      const rm = el("button", "btn-danger", "Remove");
       rm.addEventListener("click", () => { draft.roots.splice(i, 1); syncPrimaryRoot(); drawRoots(); });
       top.appendChild(rm);
       item.appendChild(top);
@@ -1504,7 +1577,7 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
   container.appendChild(instrSec);
 
   // ── Slack ──
-  const slackSec = section("Slack (optional)");
+  const slackSec = section("Slack");
   slackSec.appendChild(el("p", "muted",
     "Turn on Slack to get check-in reminders and deliver instructor notes as DMs. " +
     "It uses your OWN Slack app and token — nothing is shared. Leave off to use the web app only."));
@@ -1641,40 +1714,8 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
   enableF.input.addEventListener("change", syncSlackDetails);
   syncSlackDetails();
 
-  // ── Slack actions (only shown when chatSurface is already "slack") ──
-  // Renders based on the saved cfg, not the draft being edited, so the
-  // builder must save their Slack settings before these buttons appear.
-  if (cfg.chatSurface === "slack") {
-    const slackActSec = section("Slack actions");
-    slackActSec.appendChild(el("p", "muted",
-      "Manually trigger Slack messages. These use your saved settings above."));
-
-    const reminderRow = el("div", "slack-action-row");
-    const reminderBtn = el("button", "btn-secondary", "Send me a check-in reminder");
-    const reminderStatus = el("span", "slack-action-status", "");
-    reminderBtn.addEventListener("click", async () => {
-      reminderBtn.disabled = true;
-      reminderStatus.className = "slack-action-status";
-      reminderStatus.textContent = "Sending…";
-      try {
-        await api("POST", "/api/reminder");
-        reminderStatus.className = "slack-action-status success";
-        reminderStatus.textContent = "Reminder sent — check Slack.";
-      } catch (e) {
-        reminderStatus.className = "slack-action-status error";
-        reminderStatus.textContent = "Failed: " + e.message;
-        reminderBtn.disabled = false;
-      }
-    });
-    reminderRow.appendChild(reminderBtn);
-    reminderRow.appendChild(reminderStatus);
-    slackActSec.appendChild(reminderRow);
-
-    container.appendChild(slackActSec);
-  }
-
-  // ── Prompts (advanced) ──
-  const promptSec = section("Prompts (advanced)");
+  // ── Prompts ──
+  const promptSec = section("Prompts");
 
   if (!draft.prompts) draft.prompts = {};
 

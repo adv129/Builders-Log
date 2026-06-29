@@ -228,6 +228,44 @@ async function collectObjectiveReplies(cfg, state) {
 }
 
 /**
+ * sendCheckinQuestions(cfg, { questions }) -> Promise<{ ok, channel, ts }>
+ *
+ * DM the BUILDER (studentUserId) the day's check-in questions so they can answer
+ * in Slack instead of the web form. One message; the builder replies with their
+ * answers, which collectCheckinReplies reads back.
+ */
+async function sendCheckinQuestions(cfg, { questions } = {}) {
+  const userId = requireSlack(cfg, "studentUserId");
+
+  const list = (questions || [])
+    .map((q, i) => `${i + 1}. ${String(q).replace(/^\s*\d+[.)]\s*/, "")}`)
+    .join("\n\n");
+
+  const text =
+    `Time for your Builder Log check-in. Reply to this message with your answers ` +
+    `(one message is fine — just make clear which question each answer is for):\n\n${list}`;
+
+  const { channel, ts } = await sendToUser(userId, text);
+  return { ok: true, channel, ts };
+}
+
+/**
+ * collectCheckinReplies(cfg, state) -> Promise<{ channel, messages }>
+ *
+ * Read the BUILDER's replies since state.slack.checkinAskedTs (set when the
+ * questions were sent). Returns messages only; caller turns them into answers.
+ */
+async function collectCheckinReplies(cfg, state) {
+  const userId = requireSlack(cfg, "studentUserId");
+
+  const channel = await openDm(userId);
+  const since = (state.slack && state.slack.checkinAskedTs) || "0";
+  const messages = await historySince(channel, since);
+
+  return { channel, messages };
+}
+
+/**
  * checkConnection() -> Promise<{ connected, reason?, message, team?, botUser?, botUserId? }>
  *
  * Non-throwing probe for the web UI: answers "is the Slack bot token wired up
@@ -273,5 +311,7 @@ module.exports = {
   collectInstructorAnswers,
   askInstructorObjectives,
   collectObjectiveReplies,
+  sendCheckinQuestions,
+  collectCheckinReplies,
   checkConnection,
 };

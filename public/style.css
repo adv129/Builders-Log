@@ -177,6 +177,9 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .btn-ghost:hover:not(:disabled) { background: var(--bg2); box-shadow: none; transform: none; }
 .btn-ghost:active:not(:disabled) { box-shadow: none; transform: translate(1px, 1px); }
 
+/* Same shape/size as .btn-secondary, light pastel red instead of green. */
+.btn-danger { background: var(--coral-tint); color: #a02418; }
+
 /* ── Inputs ─────────────────────────────────────────────────────────────────── */
 
 .field-group { margin-bottom: 1.25rem; }
@@ -340,9 +343,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .generate-row {
   display: flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 1rem;
   margin-top: 1.5rem;
 }
+/* Drop any per-button margin (e.g. .checkin-screen .btn-primary's margin-top)
+   so buttons in the row stay the same height and vertically aligned. */
+.generate-row > button { margin-top: 0; }
 
 .memory-summary {
   background: var(--bg2);
@@ -553,6 +560,28 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   font-weight: 700;
 }
 .prompt-reset svg { vertical-align: -2px; margin-right: 2px; }
+
+/* ── Tracked folders (roots editor, settings) ── */
+.roots-list { display: flex; flex-direction: column; gap: 0.75rem; margin-bottom: 0.75rem; }
+.root-item {
+  padding: 0.75rem;
+  background: var(--bg2);
+  border: 1.5px solid var(--hair);
+  border-radius: var(--radius-sm);
+}
+.root-item-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.5rem;
+}
+.root-path {
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  word-break: break-all;
+}
+.root-path .badge-rec { margin-left: 0.6rem; }
 
 .churn-table { display: flex; flex-direction: column; gap: 0.25rem; }
 .churn-row {

@@ -708,6 +708,69 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // ── Daily check-in over Slack (Sync with Slack) ─────────────────────────────
+
+  // GET /api/checkin/status — whether a Slack check-in is awaiting a reply.
+  // Mirrors /api/week's awaitingInstructor so the daily + weekly flows share the
+  // same server-tracked "awaiting" model.
+  if (req.method === "GET" && pathname === "/api/checkin/status") {
+    const state = core.loadState();
+    json(res, 200, { awaiting: !!(state.slack && state.slack.checkinAwaiting) });
+    return;
+  }
+
+  // POST /api/checkin/send-slack — DM the builder the day's questions.
+  // Body: { questions: string[] }.
+  if (req.method === "POST" && pathname === "/api/checkin/send-slack") {
+    let body = {};
+    try { body = JSON.parse(await readBody(req)); } catch { apiError(res, 400, "invalid JSON"); return; }
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      const questions = Array.isArray(body.questions) ? body.questions : [];
+      const result = await slackActions.sendCheckinQuestions(cfg, { questions });
+      state.slack = state.slack || {};
+      state.slack.checkinAskedTs = result.ts;
+      state.slack.checkinAwaiting = true;
+      core.saveState(state);
+      json(res, 200, { ok: true });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // POST /api/checkin/sync-slack — pull the builder's Slack replies and, if any,
+  // generate the log entry from them (questions come from raw/chat/<date>.md).
+  if (req.method === "POST" && pathname === "/api/checkin/sync-slack") {
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      const { messages } = await slackActions.collectCheckinReplies(cfg, state);
+      const text = messages.map((m) => m.text).filter(Boolean).join("\n\n").trim();
+      if (!text) { json(res, 200, { synced: false }); return; }
+
+      const date = core.today();
+      const chatPath = path.join(ROOT, "raw", "chat", `${date}.md`);
+      let questionsDoc = "";
+      try { questionsDoc = fs.readFileSync(chatPath, "utf8"); } catch {}
+      const chat = `${questionsDoc}\n\n## Answers (via Slack)\n\n${text}\n`;
+
+      const result = await core.runSync(cfg, state, { answersText: chat });
+      // Reply ingested — clear the awaiting flag (runSync re-saved state above).
+      const after = core.loadState();
+      after.slack = after.slack || {};
+      after.slack.checkinAwaiting = false;
+      core.saveState(after);
+      json(res, 200, { synced: true, ...result });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
   // ── Plan files (editable in Settings) ───────────────────────────────────────
 
   // GET /api/plan/project — project plan markdown + the copy-prompt text.
