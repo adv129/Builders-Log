@@ -579,7 +579,7 @@ function drawWeekPanel(root) {
     const panel = el("div", "screen week-panel");
 
     const head = el("div", "week-head");
-    head.appendChild(el("h2", null, "This week"));
+    head.appendChild(el("h1", null, "This week"));
     panel.appendChild(head);
 
     if (st.error) panel.appendChild(errorBox(st.error));
