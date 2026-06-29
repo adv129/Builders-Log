@@ -33,7 +33,7 @@
 const fs = require("fs");
 const path = require("path");
 
-const { snapshot, diff, parseKey } = require("./observe");
+const { snapshot, diff, parseKey, isIgnoredRel } = require("./observe");
 const { complete } = require("./provider");
 const { bumpChurn, historyView } = require("./track");
 const { THESIS, askQuestions, extractFacts, synthesizeEntry, projectPlanPrompt, suggestObjectives,
@@ -210,8 +210,9 @@ function buildHistoryContext(cfg, state, week, date) {
     `Instructor cares about: ${(cfg.instructor?.caresAbout || []).join("; ") || "n/a"}. ` +
     `Wants flagged early: ${(cfg.instructor?.wantsFlaggedEarly || []).join("; ") || "n/a"}.` +
     `${
-      (cfg.instructor?.preferencesSource || "default") === "default"
-        ? " (NOTE: these are DEFAULT preferences — the actual instructor has not customized them yet.)"
+      (cfg.instructor?.preferencesSource || "default") !== "instructor"
+        ? " (NOTE: these preferences are NOT mentor-calibrated — they are defaults or the builder's own guess, " +
+          "not set by the actual instructor. Weight them accordingly.)"
         : ""
     }\n` +
     `Recent instructor messages: ${
@@ -322,6 +323,9 @@ function ensureDirs() {
 async function runAsk(cfg, state, opts = {}) {
   const curr = snapshot(rootsOf(cfg));
   const d = diff(state.files, curr);
+  // Drop phantom deletions of files we now ignore — an older snapshot may still
+  // list noise/build files that snapshot() no longer tracks. Real deletions stay.
+  d.deleted = d.deleted.filter((key) => !isIgnoredRel(parseKey(key).rel));
   const date = today();
   const changed = [...d.added, ...d.modified];
   const hasDelta = changed.length > 0 || d.deleted.length > 0;

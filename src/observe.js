@@ -67,6 +67,20 @@ function isNoiseFile(name) {
   return false;
 }
 
+/**
+ * True if a relative path is one we now ignore — either a noise file or living
+ * under an ignored build/output dir. Used to drop PHANTOM deletions: an older
+ * state.json snapshot may still list noise files that snapshot() no longer
+ * tracks, which would otherwise surface as bogus "deleted" entries on the first
+ * run after the ignore rules changed. Real source deletions are unaffected.
+ */
+function isIgnoredRel(rel) {
+  const parts = String(rel || "").split("/");
+  const base = parts[parts.length - 1] || "";
+  if (isNoiseFile(base)) return true;
+  return parts.slice(0, -1).some((seg) => IGNORE_DIRS.has(seg));
+}
+
 // Agent-owned entries — ignored ONLY when the watch folder IS the agent's own
 // repo root, so a real project's README.md / config.json etc. are never skipped.
 const AGENT_FILES = new Set([
@@ -179,4 +193,4 @@ function diff(prev, curr) {
   return { isFirstRun, added: added.sort(), modified: modified.sort(), deleted: deleted.sort() };
 }
 
-module.exports = { snapshot, diff, makeKey, parseKey, normalizeRoots, isNoiseFile };
+module.exports = { snapshot, diff, makeKey, parseKey, normalizeRoots, isNoiseFile, isIgnoredRel };

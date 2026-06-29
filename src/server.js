@@ -345,10 +345,15 @@ async function handleRequest(req, res) {
       if (cfg.roots[0]) cfg.root = cfg.roots[0].path;
     }
 
-    // If an instructor preference field was supplied, mark the source.
+    // If an instructor preference field was supplied via the form, it's the
+    // STUDENT entering it (a best guess) — mark it "student", not "instructor".
+    // Only the mentor calibration round-trip (/api/instructor/collect-prefs)
+    // sets "instructor". Never downgrade a real calibration.
     if (hasPrefField) {
       if (!cfg.instructor || typeof cfg.instructor !== "object") cfg.instructor = {};
-      cfg.instructor.preferencesSource = "instructor";
+      if (cfg.instructor.preferencesSource !== "instructor") {
+        cfg.instructor.preferencesSource = "student";
+      }
     }
 
     // Validate required fields.
@@ -365,10 +370,10 @@ async function handleRequest(req, res) {
 
     // Advisory notes.
     const notes = [];
-    if (cfg.instructor?.preferencesSource === "default") {
+    if (cfg.instructor && cfg.instructor.preferencesSource !== "instructor") {
       notes.push(
-        "instructor.preferencesSource is 'default' — the instructor has not customized their preferences yet. " +
-        "Share the /api/instructor-doc questionnaire to collect real preferences."
+        "Instructor preferences aren't mentor-calibrated yet — they're defaults or your own guess. " +
+        "Use Settings → Instructor → 'Ask mentor via Slack' (or share the questionnaire) to collect their real preferences."
       );
     }
 

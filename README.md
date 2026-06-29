@@ -46,6 +46,11 @@ A simple two-step loop. Each step only looks at **what's new since last time**.
      It remembers your commitments and carries them forward.
 ```
 
+**Two more things the loop does:**
+
+- **Reflection check-ins.** No files changed? You can still check in — the agent asks about meetings, decisions, user conversations, and where you got stuck. Not all build progress is a diff.
+- **Two-way mentor sync.** You **edit** the drafted instructor note before it's sent, deliver it over Slack, and **pull your mentor's reply back** into the app — where it informs the next entry. Your mentor can also set their own preferences over Slack, so the triage is tuned to what *they* actually want.
+
 The agent never invents "stall" rules. It judges significance from your accumulated history plus what your instructor said they care about — so it works whether you're shipping code daily or writing a thesis over months.
 
 ---
@@ -167,10 +172,12 @@ Edits save to `config.prompts` and fall back to the defaults when left blank. So
 
 ## Slack (optional)
 
-By default the check-in happens entirely in the web app. Enable Slack for two things:
+By default the check-in happens entirely in the web app. Enable Slack to sync with your mentor:
 
-1. **Reminder DMs** — the agent DMs you "time for your check-in" with a link to the web app.
-2. **Instructor delivery** — after a check-in, send the drafted instructor note to your mentor via DM.
+1. **Instructor delivery + reply** — after a check-in, edit and send the instructor note to your mentor as a DM, then pull their reply back into the app (it's folded into the next entry's context).
+2. **Mentor calibration** — ask your mentor to set their own preferences over Slack (Settings → Instructor); their free-text answer is mapped into the triage settings, so updates surface what *they* care about — not your guess.
+3. **Weekly priorities** — ask your mentor for this week's objectives and pull their reply into the "This week" panel.
+4. **Reminder DM** — DM yourself a check-in link with a button.
 
 > **Full walkthrough: [docs/SLACK_SETUP.md](docs/SLACK_SETUP.md)** (create the app from [`slack-app-manifest.yaml`](slack-app-manifest.yaml), install, find user IDs). Rule: keep it **internal** (public distribution OFF) so you stay on Slack's normal rate limits.
 

@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { snapshot, diff, makeKey, parseKey, isNoiseFile } = require("../src/observe");
+const { snapshot, diff, makeKey, parseKey, isNoiseFile, isIgnoredRel } = require("../src/observe");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -284,6 +284,17 @@ describe("snapshot — noise filtering", () => {
     assert.equal(isNoiseFile("server.js"), false);
     assert.equal(isNoiseFile("README.md"), false);
     assert.equal(isNoiseFile("matcher.py"), false);
+  });
+
+  test("isIgnoredRel catches noise files and ignored-dir paths, not real source", () => {
+    // Phantom-deletion guard: a stale snapshot listing these must not surface
+    // as a real "deleted" change after the ignore rules tightened.
+    assert.equal(isIgnoredRel("package-lock.json"), true);
+    assert.equal(isIgnoredRel("src/app/icon.svg"), true);
+    assert.equal(isIgnoredRel("dist/bundle.js"), true);
+    assert.equal(isIgnoredRel(".next/server/page.js"), true);
+    assert.equal(isIgnoredRel("src/server.js"), false);
+    assert.equal(isIgnoredRel("notes/ideas.md"), false);
   });
 });
 

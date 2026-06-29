@@ -690,13 +690,12 @@ function drawWeekPanel(root) {
       panel.appendChild(mc);
     }
 
-    // Nudge when triage is still running on generic defaults — the mentor hasn't
-    // calibrated yet. Made actionable (ask via Slack) in the Instructor settings.
-    const prefsDefault = instr.name && (!instr.preferencesSource || instr.preferencesSource === "default");
-    if (prefsDefault) {
+    // Nudge whenever triage is NOT mentor-calibrated (defaults, or the student's
+    // own guess). Made actionable in Settings → Instructor (ask via Slack).
+    if (instr.name && instr.preferencesSource !== "instructor") {
       panel.appendChild(infoBox(
-        "Your mentor hasn't set their preferences yet, so instructor notes use generic " +
-        "defaults. Calibrate them in Settings → Instructor for sharper, on-target updates."));
+        "Your mentor hasn't set their own preferences yet, so instructor notes run on " +
+        "uncalibrated settings. Calibrate them in Settings → Instructor for sharper, on-target updates."));
     }
 
     if (st.error) panel.appendChild(errorBox(st.error));

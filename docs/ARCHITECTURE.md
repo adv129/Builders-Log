@@ -39,9 +39,11 @@ The engine (`src/core.js`) is called by three thin surfaces. Each surface handle
 The loop is intentionally split so the same shape works in the browser today and via Slack in the future:
 
 ```
-PHASE 1 — runAsk                                          (trigger: click / npm run ask)
-  observe.snapshot(root)  vs  state.files ──no delta──▶ {changed:false} — nothing to do
-        │ delta
+PHASE 1 — runAsk(cfg, state, {allowEmpty})                (trigger: click / npm run ask)
+  observe.snapshot(root)  vs  state.files ──no delta──▶ {changed:false}
+        │                                                 (unless allowEmpty: a
+        │ delta                                            REFLECTION check-in —
+        │                                                  meetings/decisions/stuck)
         ▼
   read changed files (excerpts, up to 4000 chars each)
         │
@@ -86,9 +88,9 @@ PHASE 2 — runSync                                         (trigger: click / np
 | `src/server.js` | Zero-dep `http` server. Loads `.env`, serves `public/`, handles JSON API routes (`/api/ask`, `/api/sync`, `/api/status`, `/api/config`, `/api/logs`, `/api/reminder`, `/api/send-instructor`, etc.). Binds to 127.0.0.1 only. |
 | `src/cli.js` | Thin terminal surface. `ask` / `sync` / `status` subcommands. Reads/writes only what the terminal needs; delegates all logic to `src/core.js`. |
 | `src/provider.js` | `complete(prompt, opts)` → text. Dispatches to the configured adapter. Adapters: `claude-p` (stdin to `claude -p`), `codex` (stdin to `codex exec -`), `openrouter` (HTTPS POST). Secrets from `process.env` only. |
-| `src/observe.js` | `snapshot(root)` → `{relPath: mtimeMs}`. `diff(prev, curr)` → `{isFirstRun, added, modified, deleted}`. Ignores `node_modules`, `.git`, dotfiles always; ignores agent-owned files when watching the agent's own root. |
+| `src/observe.js` | `snapshot(root)` → `{relPath: mtimeMs}`. `diff(prev, curr)` → `{isFirstRun, added, modified, deleted}`. Ignores `node_modules`, `.git`, dotfiles always; ignores lockfiles, build-output dirs (`dist`/`.next`/…), and binary/generated files (noise filtering, `isNoiseFile`); ignores agent-owned files when watching the agent's own root. |
 | `src/track.js` | Pure memory functions: `applyExtraction` (resolve / carry / dedupe commitments, blocker recurrence), `bumpChurn`, `historyView` (read-only factual projection). No judgment, no thresholds. All tested. |
-| `src/slack-actions.js` | High-level Slack operations: `sendReminder`, `sendInstructorNote`, `askInstructor`, `collectInstructorAnswers`. Reads config/state; calls the connector; returns structured results. No HTTP, no printing. |
+| `src/slack-actions.js` | High-level Slack operations: `sendReminder`, `sendInstructorNote` (accepts an edited note), `collectInstructorFeedback` (mentor's reply to a note), `askInstructor` + `collectInstructorAnswers` (calibration round-trip), `askInstructorObjectives` + `collectObjectiveReplies` (weekly priorities), `sendCheckinQuestions` + `collectCheckinReplies`. Reads config/state; calls the connector; returns structured results. No HTTP, no printing. |
 | `src/connectors/slack.js` | Low-level Slack API primitives: `openDm`, `postMessage`, `historySince`, `sendToUser`. Retry-After backoff on HTTP 429. `SLACK_API_BASE` env var for test overriding. |
 | `src/templates/` | Prompts as functions behind a manifest (`index.js`). `thesis.js` (THESIS preamble), `ask.js`, `extract.js`, `synthesize.js`, `onboard.js`. Prompt wording is unit-tested in `test/templates.test.js`. |
 
