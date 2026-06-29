@@ -44,4 +44,34 @@ function instructorDoc(cfg) {
   );
 }
 
-module.exports = { INSTRUCTOR_QUESTIONS, instructorDoc };
+/**
+ * extractInstructorPrefs({ thesis, questions, reply }) -> string
+ *
+ * STRICT-JSON prompt that maps an instructor's free-text answer to the
+ * calibration questions into the structured preference fields the triage layer
+ * uses. This is what turns a Slack reply into real (non-default) preferences —
+ * the missing return leg of mentor calibration.
+ */
+function extractInstructorPrefs({ thesis, questions, reply }) {
+  const qList = (questions || INSTRUCTOR_QUESTIONS).map((q, i) => `${i + 1}. ${q}`).join("\n");
+  return (
+    `${thesis}\n\n` +
+    `An instructor answered the calibration questions below in their own words. Map their ` +
+    `answer into preferences for shaping future updates to this builder. Output STRICT JSON ` +
+    `only — no prose, no code fence — with EXACTLY these keys:\n` +
+    `{\n` +
+    `  "caresAbout": ["<what they most want to know each cycle>"],\n` +
+    `  "wantsFlaggedEarly": ["<what to surface early: blockers, risks, scope changes>"],\n` +
+    `  "cadence": "<how often they want updates, e.g. weekly or daily>",\n` +
+    `  "format": "<preferred format, e.g. short bullets>",\n` +
+    `  "notUseful": "<what they never want to see>",\n` +
+    `  "currentGoal": "<the goal or milestone this work is measured against, if stated>"\n` +
+    `}\n` +
+    `Use ONLY what the instructor actually said — leave a string "" or an array [] if they ` +
+    `didn't address it. Never invent preferences.\n\n` +
+    `CALIBRATION QUESTIONS:\n${qList}\n\n` +
+    `INSTRUCTOR'S REPLY:\n${reply || "(no reply)"}\n`
+  );
+}
+
+module.exports = { INSTRUCTOR_QUESTIONS, instructorDoc, extractInstructorPrefs };

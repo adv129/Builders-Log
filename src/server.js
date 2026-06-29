@@ -574,14 +574,84 @@ async function handleRequest(req, res) {
     return;
   }
 
-  // GET /api/instructor/status — is a sent note awaiting the instructor's reply?
+  // GET /api/instructor/status — awaiting a note reply and/or calibration answers?
   if (req.method === "GET" && pathname === "/api/instructor/status") {
+    const cfg = core.loadConfig() || {};
     const state = core.loadState();
     const sl = state.slack || {};
     json(res, 200, {
       awaitingReply: !!sl.instructorNoteAwaiting,
       noteDate: sl.instructorNoteDate || null,
+      awaitingPrefs: !!sl.prefsAwaiting,
+      preferencesSource: (cfg.instructor && cfg.instructor.preferencesSource) || "default",
     });
+    return;
+  }
+
+  // POST /api/instructor/ask-prefs — DM the instructor the calibration
+  // questionnaire over Slack so they set their own preferences (instead of the
+  // student guessing). Arms collection via the sent ts.
+  if (req.method === "POST" && pathname === "/api/instructor/ask-prefs") {
+    const cfg = core.loadConfig();
+    if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+    const state = core.loadState();
+    try {
+      const result = await slackActions.askInstructor(cfg);
+      state.slack = state.slack || {};
+      state.slack.instructorAskedTs = result.ts;
+      state.slack.prefsAwaiting = true;
+      core.saveState(state);
+      // Stamp the ask date on config (answeredOn is set when answers arrive).
+      const cfg2 = core.loadConfig() || {};
+      cfg2.instructor = cfg2.instructor || {};
+      cfg2.instructor.askedOn = core.today();
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg2, null, 2) + "\n");
+      json(res, 200, { ok: true });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    }
+    return;
+  }
+
+  // POST /api/instructor/collect-prefs — read the instructor's calibration reply,
+  // map it to preference fields via the provider, and save them to config
+  // (preferencesSource flips to "instructor"). Closes the calibration loop.
+  if (req.method === "POST" && pathname === "/api/instructor/collect-prefs") {
+    if (busy) { apiError(res, 409, "busy"); return; }
+    busy = true;
+    try {
+      const cfg = core.loadConfig();
+      if (!cfg) { apiError(res, 400, "no config — run setup first"); return; }
+      const state = core.loadState();
+      const { messages } = await slackActions.collectInstructorAnswers(cfg, state);
+      const joined = messages.map((m) => m.text).filter(Boolean).join("\n").trim();
+      if (!joined) { json(res, 200, { collected: false }); return; }
+
+      const prefs = await core.runExtractInstructorPrefs(cfg, joined);
+
+      const cfg2 = core.loadConfig() || {};
+      cfg2.instructor = cfg2.instructor || {};
+      if (prefs.caresAbout.length) cfg2.instructor.caresAbout = prefs.caresAbout;
+      if (prefs.wantsFlaggedEarly.length) cfg2.instructor.wantsFlaggedEarly = prefs.wantsFlaggedEarly;
+      for (const k of ["cadence", "format", "notUseful", "currentGoal"]) {
+        if (prefs[k]) cfg2.instructor[k] = prefs[k];
+      }
+      cfg2.instructor.preferencesSource = "instructor";
+      cfg2.instructor.answeredOn = core.today();
+      cfg2.instructor.raw = joined;
+      fs.writeFileSync(CONFIG_PATH, JSON.stringify(cfg2, null, 2) + "\n");
+
+      const after = core.loadState();
+      after.slack = after.slack || {};
+      after.slack.prefsAwaiting = false;
+      core.saveState(after);
+
+      json(res, 200, { collected: true, prefs, instructor: cfg2.instructor });
+    } catch (e) {
+      if (!res.headersSent) apiError(res, 500, e.message);
+    } finally {
+      busy = false;
+    }
     return;
   }
 

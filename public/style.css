@@ -913,6 +913,14 @@ textarea.prompt-input {
 
 .slack-details { margin-top: 0.5rem; }
 
+/* Mentor calibration block (Settings → Instructor). */
+.calibration-block {
+  margin-top: 0.75rem;
+  padding-top: 1rem;
+  border-top: 1.5px solid var(--hair);
+}
+.calibration-block .slack-action-row { flex-wrap: wrap; }
+
 .folder-browse-row {
   display: flex;
   align-items: center;

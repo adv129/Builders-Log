@@ -20,7 +20,7 @@ const { THESIS } = require("./thesis");
 const { askQuestions, DEFAULT_ASK_GUIDANCE } = require("./ask");
 const { extractFacts } = require("./extract");
 const { synthesizeEntry } = require("./synthesize");
-const { INSTRUCTOR_QUESTIONS, instructorDoc } = require("./onboard");
+const { INSTRUCTOR_QUESTIONS, instructorDoc, extractInstructorPrefs } = require("./onboard");
 const { PROJECT_PLAN_FORMAT, projectPlanPrompt } = require("./projectPlan");
 const { suggestObjectives } = require("./priorities");
 
@@ -41,6 +41,7 @@ module.exports = {
   synthesizeEntry,
   INSTRUCTOR_QUESTIONS,
   instructorDoc,
+  extractInstructorPrefs,
   PROJECT_PLAN_FORMAT,
   projectPlanPrompt,
   suggestObjectives,

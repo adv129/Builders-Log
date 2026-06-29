@@ -36,7 +36,8 @@ const path = require("path");
 const { snapshot, diff, parseKey } = require("./observe");
 const { complete } = require("./provider");
 const { bumpChurn, historyView } = require("./track");
-const { THESIS, askQuestions, extractFacts, synthesizeEntry, projectPlanPrompt, suggestObjectives } = require("./templates/index");
+const { THESIS, askQuestions, extractFacts, synthesizeEntry, projectPlanPrompt, suggestObjectives,
+  extractInstructorPrefs, INSTRUCTOR_QUESTIONS } = require("./templates/index");
 const plan = require("./plan");
 
 // ---------------------------------------------------------------------------
@@ -589,6 +590,31 @@ async function runSuggestObjectives(cfg) {
   return Array.isArray(out.objectives) ? out.objectives.slice(0, 3) : [];
 }
 
+/**
+ * runExtractInstructorPrefs(cfg, replyText) -> Promise<prefs>
+ * Map an instructor's free-text calibration reply into structured preference
+ * fields. Normalizes types (arrays vs strings). Returns empty fields on a parse
+ * miss rather than throwing, so the caller can decide what to persist.
+ */
+async function runExtractInstructorPrefs(cfg, replyText) {
+  const prompt = extractInstructorPrefs({
+    thesis: (cfg.prompts && cfg.prompts.thesis) || THESIS,
+    questions: INSTRUCTOR_QUESTIONS,
+    reply: replyText,
+  });
+  const out = parseJsonLoose(await complete(prompt, { provider: cfg.provider, config: cfg })) || {};
+  const arr = (v) => (Array.isArray(v) ? v.filter(Boolean).map(String) : (v ? [String(v)] : []));
+  const str = (v) => (typeof v === "string" ? v.trim() : v == null ? "" : String(v));
+  return {
+    caresAbout: arr(out.caresAbout),
+    wantsFlaggedEarly: arr(out.wantsFlaggedEarly),
+    cadence: str(out.cadence),
+    format: str(out.format),
+    notUseful: str(out.notUseful),
+    currentGoal: str(out.currentGoal),
+  };
+}
+
 /** Generate plan/project.md via the provider and write it. Returns the text. */
 async function generateProjectPlan(cfg, opts = {}) {
   const prompt = buildProjectPlanPrompt(cfg, opts);
@@ -639,6 +665,8 @@ module.exports = {
   scaffoldDirs,
   // Weekly objectives
   runSuggestObjectives,
+  // Mentor calibration
+  runExtractInstructorPrefs,
   // Plan-file layer (re-exported for surfaces)
   plan,
   // Read-only

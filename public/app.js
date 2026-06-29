@@ -1683,6 +1683,8 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
 
   // ── Instructor ──
   const instrSec = section("Instructor");
+  // Capture field inputs so a mentor calibration sync can repopulate them.
+  const instrInputs = {};
 
   const instrNameF = makeField("Instructor name", draft.instructor?.name, { placeholder: "e.g. Dr. Smith" });
   instrNameF.input.addEventListener("input", () => {
@@ -1690,6 +1692,7 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
     draft.instructor.name = instrNameF.input.value;
   });
   instrSec.appendChild(instrNameF.grp);
+  instrInputs.name = { input: instrNameF.input, isArray: false };
 
   [
     { k: "caresAbout",        label: "Cares about (one per line)",     isArray: true },
@@ -1707,7 +1710,13 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
         : f.input.value;
     });
     instrSec.appendChild(f.grp);
+    instrInputs[k] = { input: f.input, isArray: !!isArray };
   });
+
+  // Mentor calibration — let the mentor set the fields above themselves, instead
+  // of the student guessing. Copy a questionnaire, or (with Slack) ask + sync.
+  renderInstructorCalibration(instrSec, draft, instrInputs);
+
   container.appendChild(instrSec);
 
   // ── Slack ──
@@ -2037,6 +2046,106 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
     saveBtn.textContent = "Save settings";
   });
   container.appendChild(saveBtn);
+}
+
+// ── Mentor calibration (Settings → Instructor) ──────────────────────────────
+// The mentor's real preferences drive triage quality. This lets them set the
+// fields themselves: copy a questionnaire to send any way, or — with Slack —
+// ask over DM and pull their free-text answer back, mapped into the fields.
+function renderInstructorCalibration(sec, draft, inputs) {
+  const slackOn = draft.chatSurface === "slack";
+
+  const wrap = el("div", "calibration-block");
+  wrap.appendChild(el("div", "field-label", "Mentor calibration"));
+  wrap.appendChild(el("p", "muted",
+    "Let your mentor fill in the fields above in their own words — " +
+    (slackOn
+      ? "ask them over Slack and pull their answers back automatically, or copy the questionnaire to send any way."
+      : "copy the questionnaire to send, or enable Slack above to ask and pull answers back automatically.")));
+
+  const row = el("div", "slack-action-row");
+  const status = el("span", "slack-action-status", "");
+
+  const copyBtn = el("button", "btn-ghost", "Copy questionnaire");
+  copyBtn.addEventListener("click", async () => {
+    try {
+      const { markdown } = await api("GET", "/api/instructor-doc");
+      await navigator.clipboard.writeText(markdown);
+      copyBtn.textContent = "Copied!";
+      setTimeout(() => { copyBtn.textContent = "Copy questionnaire"; }, 1500);
+    } catch (e) {
+      status.className = "slack-action-status error";
+      status.textContent = "Failed: " + e.message;
+    }
+  });
+  row.appendChild(copyBtn);
+
+  if (slackOn) {
+    let awaiting = false;
+    const askBtn = el("button", "btn-secondary", "Ask mentor via Slack");
+    askBtn.addEventListener("click", async () => {
+      askBtn.disabled = true;
+      status.className = "slack-action-status";
+      try {
+        if (!awaiting) {
+          status.textContent = "Sending…";
+          await api("POST", "/api/instructor/ask-prefs");
+          awaiting = true;
+          askBtn.textContent = "Sync mentor's answers";
+          status.className = "slack-action-status success";
+          status.textContent = "Asked — your mentor answers in Slack, then click Sync.";
+        } else {
+          status.textContent = "Reading reply…";
+          const r = await api("POST", "/api/instructor/collect-prefs");
+          if (!r.collected) {
+            status.className = "slack-action-status warn";
+            status.textContent = "No answer yet — try again in a moment.";
+          } else {
+            applyPrefsToForm(inputs, draft, r.instructor);
+            awaiting = false;
+            askBtn.textContent = "Ask mentor via Slack";
+            status.className = "slack-action-status success";
+            status.textContent = "Mentor's preferences applied — review above, then Save settings.";
+          }
+        }
+      } catch (e) {
+        status.className = "slack-action-status error";
+        status.textContent = "Failed: " + e.message;
+      }
+      askBtn.disabled = false;
+    });
+    row.appendChild(askBtn);
+
+    // Resume a pending ask across reloads.
+    api("GET", "/api/instructor/status").then((st) => {
+      if (st.awaitingPrefs) {
+        awaiting = true;
+        askBtn.textContent = "Sync mentor's answers";
+        status.className = "slack-action-status";
+        status.textContent = "Waiting on your mentor's Slack reply — click Sync when they answer.";
+      }
+    }).catch(() => {});
+  }
+
+  row.appendChild(status);
+  wrap.appendChild(row);
+  sec.appendChild(wrap);
+}
+
+// Push collected mentor preferences into the live form + draft + appConfig so
+// the values show immediately and a later Save won't clobber them with stale text.
+function applyPrefsToForm(inputs, draft, instructor) {
+  if (!instructor) return;
+  draft.instructor = Object.assign(draft.instructor || {}, instructor);
+  appConfig = appConfig || {};
+  appConfig.instructor = Object.assign(appConfig.instructor || {}, instructor);
+  for (const [k, meta] of Object.entries(inputs)) {
+    if (!(k in instructor)) continue;
+    const v = instructor[k];
+    meta.input.value = meta.isArray
+      ? (Array.isArray(v) ? v.join("\n") : (v || ""))
+      : (v == null ? "" : String(v));
+  }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
