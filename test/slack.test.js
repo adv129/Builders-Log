@@ -24,6 +24,9 @@ const net = require("net");
 const fs = require("fs");
 const path = require("path");
 
+// plan.js has no Slack/env dependency — safe to require at top.
+const { parseObjectiveReply } = require("../src/plan");
+
 // ── helpers ───────────────────────────────────────────────────────────────────
 
 /** Resolve a free TCP port on 127.0.0.1. */
@@ -40,11 +43,13 @@ function freePort() {
 // ── suite ─────────────────────────────────────────────────────────────────────
 
 describe("Slack actions against fake Slack server", () => {
-  let sendReminder, sendInstructorNote;
+  let sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies;
   let fakeSlack;
   let fakePort;
   // Mutable array — tests clear it before each assertion round.
   const captured = [];
+  // Mutable conversation history the fake /conversations.history returns.
+  let history = [];
 
   // ── fake server setup ──────────────────────────────────────────────────────
 
@@ -74,7 +79,8 @@ describe("Slack actions against fake Slack server", () => {
             resp.user_id = "BOT-FAKE-U000";
             break;
           case "/conversations.history":
-            resp.messages = [];
+            resp.messages = history;
+            resp.has_more = false;
             break;
         }
 
@@ -97,7 +103,8 @@ describe("Slack actions against fake Slack server", () => {
     process.env.SLACK_BOT_TOKEN = "xoxb-fake-test-token";
 
     // Dynamic require — loads fresh with the env vars already set above.
-    ({ sendReminder, sendInstructorNote } = require("../src/slack-actions"));
+    ({ sendReminder, sendInstructorNote, collectObjectiveReplies, collectCheckinReplies } =
+      require("../src/slack-actions"));
   });
 
   after(async () => {
@@ -292,5 +299,50 @@ describe("Slack actions against fake Slack server", () => {
       !postCall.body.text.includes(firstDraft),
       "message must NOT include the earlier draft"
     );
+  });
+
+  // ── multi-message intake (the "Sync with Slack" pull) ──────────────────────
+
+  test("collectObjectiveReplies — intakes ALL instructor messages, oldest-first, excluding the bot", async () => {
+    captured.length = 0;
+    // Three real instructor messages (split reply) + one bot message to exclude.
+    // Deliberately out of order to prove oldest-first sorting.
+    history = [
+      { ts: "1700000006.000002", user: "U-INSTRUCTOR-002", text: "2. Wire Slack\n3. Polish UI" },
+      { ts: "1700000004.000000", user: "BOT-FAKE-U000", subtype: "bot_message", text: "What are the priorities?" },
+      { ts: "1700000005.000001", user: "U-INSTRUCTOR-002", text: "1. Ship onboarding" },
+    ];
+
+    const state = { slack: { priorityAskedTs: "1700000004.000000" } };
+    const { messages } = await collectObjectiveReplies(mockCfg(), state);
+
+    // All instructor messages, bot excluded, oldest-first.
+    assert.equal(messages.length, 2, "should return both instructor messages, not just the latest");
+    assert.equal(messages[0].text, "1. Ship onboarding", "oldest message first");
+    assert.equal(messages[1].text, "2. Wire Slack\n3. Polish UI");
+
+    // The server route combines all messages then parses — every line survives.
+    const text = messages.map((m) => m.text).filter(Boolean).join("\n").trim();
+    const items = parseObjectiveReply(text);
+    assert.deepEqual(items, ["Ship onboarding", "Wire Slack", "Polish UI"],
+      "all objectives from all messages intaken, not just the last message");
+  });
+
+  test("collectCheckinReplies — intakes ALL builder messages since the ask", async () => {
+    captured.length = 0;
+    history = [
+      { ts: "1700000011.000001", user: "U-STUDENT-001", text: "Answer 1: built the parser." },
+      { ts: "1700000012.000002", user: "U-STUDENT-001", text: "Answer 2: tested it." },
+      { ts: "1700000013.000003", user: "U-STUDENT-001", text: "Answer 3: no blockers." },
+    ];
+
+    const state = { slack: { checkinAskedTs: "1700000010.000000" } };
+    const { messages } = await collectCheckinReplies(mockCfg(), state);
+
+    assert.equal(messages.length, 3, "should return all three builder messages");
+    // The route joins them into the answers blob fed to runSync.
+    const blob = messages.map((m) => m.text).filter(Boolean).join("\n\n");
+    assert.ok(blob.includes("Answer 1") && blob.includes("Answer 2") && blob.includes("Answer 3"),
+      "all builder messages present in the combined answers");
   });
 });

@@ -639,7 +639,10 @@ function drawWeekPanel(root) {
     setBtn.addEventListener("click", () => onSetPriorities(objs));
     actions.appendChild(setBtn);
     if (d.slackEnabled) {
-      const syncBtn = el("button", "btn-secondary", "Sync with Slack");
+      // Mirrors the daily button: "Ask instructor via Slack" until an ask is
+      // outstanding, then "Sync with Slack" until the reply is pulled in.
+      const syncBtn = el("button", "btn-secondary",
+        d.awaitingInstructor ? "Sync with Slack" : "Ask instructor via Slack");
       syncBtn.addEventListener("click", () => slackSync(syncBtn));
       actions.appendChild(syncBtn);
     }
