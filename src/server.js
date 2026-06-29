@@ -738,6 +738,33 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // GET /api/instructor/notes — record of what was shared with the mentor:
+  // one row per date with a draft, derived from raw/instructor/<date>.md markers.
+  if (req.method === "GET" && pathname === "/api/instructor/notes") {
+    const dir = path.join(ROOT, "raw", "instructor");
+    let notes = [];
+    try {
+      notes = fs.readdirSync(dir)
+        .filter((f) => /^\d{4}-\d{2}-\d{2}\.md$/.test(f))
+        .map((f) => {
+          let content = "";
+          try { content = fs.readFileSync(path.join(dir, f), "utf8"); } catch {}
+          return {
+            date: f.slice(0, -3),
+            drafted: /## Draft for instructor \(outbound\)/.test(content),
+            sent: /## Sent to instructor/.test(content),
+            replied: /## Reply from instructor/.test(content),
+          };
+        })
+        .filter((n) => n.drafted || n.sent || n.replied)
+        .sort((a, b) => b.date.localeCompare(a.date));
+    } catch {
+      // dir may not exist yet — return empty
+    }
+    json(res, 200, { notes });
+    return;
+  }
+
   // ── Weekly objectives (the agenda) ──────────────────────────────────────────
 
   // GET /api/week — current weekly plan view + meta for the check-in panel.

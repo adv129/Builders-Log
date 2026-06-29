@@ -633,6 +633,21 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 }
 .churn-count { font-family: var(--font-display); color: var(--accent-h); flex-shrink: 0; }
 
+/* ── Shared-with-mentor record (History) ── */
+.mentor-notes { display: flex; flex-direction: column; gap: 0.4rem; }
+.mentor-note {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  padding: 0.45rem 0.7rem;
+  background: var(--bg2);
+  border: 1.5px solid var(--hair);
+  border-radius: var(--radius-sm);
+}
+.mentor-note-date { font-family: var(--font-mono); font-size: 0.82rem; }
+.note-badges { display: inline-flex; gap: 0.4rem; flex-shrink: 0; }
+
 .logs-panel h2 { margin-bottom: 0.75rem; }
 
 .logs-list {

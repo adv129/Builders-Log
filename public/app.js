@@ -874,10 +874,19 @@ function renderHistory(container) {
 
   const layout = el("div", "history-layout");
 
-  // Project-plan panel (read-only). Live weekly state (objectives/blockers)
-  // lives on the Check-in screen — History is past entries + the project plan.
+  // "This week so far" — the trajectory at a glance (objectives done/open +
+  // recurring blockers). This is the arc mentorship needs, not just points.
+  const weekPanel = el("div", "status-panel");
+  weekPanel.appendChild(spinner("Loading…"));
+  layout.appendChild(weekPanel);
+
+  // "Shared with your mentor" — a record of what was escalated and whether the
+  // mentor replied.
+  const mentorPanel = el("div", "status-panel");
+  layout.appendChild(mentorPanel);
+
+  // Project-plan panel (read-only).
   const statusPanel = el("div", "status-panel");
-  statusPanel.appendChild(spinner("Loading…"));
   layout.appendChild(statusPanel);
 
   // Logs panel
@@ -896,12 +905,24 @@ function renderHistory(container) {
   screen.appendChild(layout);
   container.appendChild(screen);
 
-  // Fetch in parallel — History shows the project plan + the past entries.
-  Promise.all([api("GET", "/api/plan/project"), api("GET", "/api/logs")])
-    .then(([project, logs]) => {
-      statusPanel.innerHTML = "";
-      drawProjectPanel(statusPanel, project);
+  // Each panel loads independently so one failure doesn't blank the screen.
+  api("GET", "/api/week")
+    .then((w) => drawWeekTrajectory(weekPanel, w))
+    .catch(() => { weekPanel.style.display = "none"; });
 
+  api("GET", "/api/instructor/notes")
+    .then((d) => drawMentorPanel(mentorPanel, d.notes || []))
+    .catch(() => { mentorPanel.style.display = "none"; });
+
+  api("GET", "/api/plan/project")
+    .then((project) => { statusPanel.innerHTML = ""; drawProjectPanel(statusPanel, project); })
+    .catch((e) => {
+      statusPanel.innerHTML = "";
+      statusPanel.appendChild(errorBox("Failed to load project plan: " + e.message));
+    });
+
+  api("GET", "/api/logs")
+    .then((logs) => {
       logsList.innerHTML = "";
       if (!logs.length) {
         logsList.appendChild(el("p", "muted",
@@ -914,10 +935,65 @@ function renderHistory(container) {
         });
       }
     })
-    .catch((e) => {
-      statusPanel.innerHTML = "";
-      statusPanel.appendChild(errorBox("Failed to load: " + e.message));
+    .catch((e) => { logsList.innerHTML = ""; logsList.appendChild(errorBox("Failed to load logs: " + e.message)); });
+
+  function drawWeekTrajectory(panel, w) {
+    panel.innerHTML = "";
+    panel.appendChild(el("h2", null, "This week so far"));
+    panel.appendChild(el("p", "muted", "Week of " + esc(w.weekOf)));
+
+    const objs = w.objectives || [];
+    if (objs.length) {
+      const done = objs.filter((o) => o.done).length;
+      const sec = el("div", "status-section");
+      sec.appendChild(el("h3", null, `Objectives — ${done}/${objs.length} done`));
+      const ul = el("ul", "week-objectives");
+      objs.forEach((o) => {
+        const li = document.createElement("li");
+        if (o.done) li.className = "done";
+        li.textContent = (o.done ? "✓ " : "• ") + o.text;
+        ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+      panel.appendChild(sec);
+    } else {
+      panel.appendChild(el("p", "muted", "No objectives set this week."));
+    }
+
+    if ((w.blockers || []).length) {
+      const sec = el("div", "status-section");
+      sec.appendChild(el("h3", null, "Blockers"));
+      const ul = el("ul", "week-blockers");
+      w.blockers.forEach((b) => {
+        const li = document.createElement("li");
+        li.textContent = b.text + (b.count > 1 ? ` (seen ${b.count}×)` : "");
+        ul.appendChild(li);
+      });
+      sec.appendChild(ul);
+      panel.appendChild(sec);
+    }
+  }
+
+  function drawMentorPanel(panel, notes) {
+    panel.innerHTML = "";
+    panel.appendChild(el("h2", null, "Shared with your mentor"));
+    if (!notes.length) {
+      panel.appendChild(el("p", "muted",
+        "Nothing shared yet. After a check-in, send the instructor note from the check-in screen."));
+      return;
+    }
+    const list = el("div", "mentor-notes");
+    notes.forEach((n) => {
+      const item = el("div", "mentor-note");
+      item.appendChild(el("span", "mentor-note-date", esc(n.date)));
+      const badges = el("span", "note-badges");
+      badges.appendChild(el("span", n.sent ? "badge-sent" : "badge-gated", n.sent ? "sent" : "draft"));
+      if (n.replied) badges.appendChild(el("span", "badge-rec", "reply"));
+      item.appendChild(badges);
+      list.appendChild(item);
     });
+    panel.appendChild(list);
+  }
 
   function drawProjectPanel(panel, project) {
     panel.appendChild(el("h2", null, "Project plan"));
