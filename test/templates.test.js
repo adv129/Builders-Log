@@ -129,6 +129,20 @@ describe("askQuestions", () => {
     const p = makePrompt({ deleted: [] });
     assert.ok(!p.includes("Deleted:"), "should not include Deleted: line when empty");
   });
+
+  test("reflective mode asks about non-file work and bypasses file guidance", () => {
+    const p = makePrompt({ reflective: true, guidance: "Use ONLY the changed files." });
+    const lower = p.toLowerCase();
+    assert.ok(lower.includes("reflection check-in"), "should announce a reflection check-in");
+    assert.ok(/meeting|decision|stuck/.test(lower), "should ask about meetings/decisions/being stuck");
+    assert.ok(!p.includes("Changed files (new/modified):"), "should not claim files changed");
+    assert.ok(!lower.includes("use only the changed files"),
+      "reflective mode must bypass the file-centric custom guidance");
+    // Still a SPECIFIC, numbered, evidence-seeking request.
+    assert.ok(p.toUpperCase().includes("SPECIFIC"));
+    assert.ok(lower.includes("numbered"));
+    assert.ok(lower.includes("evidence"));
+  });
 });
 
 // ---------------------------------------------------------------------------

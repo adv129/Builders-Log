@@ -13,7 +13,7 @@ const fs = require("fs");
 const path = require("path");
 const os = require("os");
 
-const { snapshot, diff, makeKey, parseKey } = require("../src/observe");
+const { snapshot, diff, makeKey, parseKey, isNoiseFile } = require("../src/observe");
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -225,6 +225,65 @@ describe("snapshot — ignore rules", () => {
     } finally {
       rmTmp(tmpDir);
     }
+  });
+});
+
+describe("snapshot — noise filtering", () => {
+  test("ignores lockfiles and generated files, keeps real source", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, "app.js"), "// real code");
+      fs.writeFileSync(path.join(tmpDir, "package-lock.json"), "{}");
+      fs.writeFileSync(path.join(tmpDir, "yarn.lock"), "");
+      fs.writeFileSync(path.join(tmpDir, "next-env.d.ts"), "");
+      fs.writeFileSync(path.join(tmpDir, "tsconfig.tsbuildinfo"), "{}");
+      const snap = snapshot(tmpDir);
+      const keys = Object.keys(snap);
+      assert.ok(keys.includes("app.js"), "real source kept");
+      assert.equal(keys.length, 1, "only the real source file is tracked");
+    } finally {
+      rmTmp(tmpDir);
+    }
+  });
+
+  test("ignores binary / media / minified files", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, "main.ts"), "export const x = 1;");
+      fs.writeFileSync(path.join(tmpDir, "logo.png"), "binary");
+      fs.writeFileSync(path.join(tmpDir, "icon.svg"), "<svg/>");
+      fs.writeFileSync(path.join(tmpDir, "bundle.min.js"), "minified");
+      fs.writeFileSync(path.join(tmpDir, "styles.css.map"), "{}");
+      const snap = snapshot(tmpDir);
+      assert.deepEqual(Object.keys(snap), ["main.ts"], "only real source tracked");
+    } finally {
+      rmTmp(tmpDir);
+    }
+  });
+
+  test("skips build-output / vendored directories wholesale", () => {
+    const tmpDir = makeTmpDir();
+    try {
+      fs.writeFileSync(path.join(tmpDir, "index.js"), "// code");
+      for (const d of ["dist", ".next", "build", "coverage", "__pycache__"]) {
+        fs.mkdirSync(path.join(tmpDir, d), { recursive: true });
+        fs.writeFileSync(path.join(tmpDir, d, "artifact.js"), "generated");
+      }
+      const snap = snapshot(tmpDir);
+      assert.deepEqual(Object.keys(snap), ["index.js"], "no build-dir files tracked");
+    } finally {
+      rmTmp(tmpDir);
+    }
+  });
+
+  test("isNoiseFile flags lockfiles/binaries but not source", () => {
+    assert.equal(isNoiseFile("package-lock.json"), true);
+    assert.equal(isNoiseFile("logo.png"), true);
+    assert.equal(isNoiseFile("app.min.js"), true);
+    assert.equal(isNoiseFile("data.tsbuildinfo"), true);
+    assert.equal(isNoiseFile("server.js"), false);
+    assert.equal(isNoiseFile("README.md"), false);
+    assert.equal(isNoiseFile("matcher.py"), false);
   });
 });
 

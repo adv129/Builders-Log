@@ -147,6 +147,17 @@ function gatherDelta(cfg, d) {
 }
 
 /**
+ * Summarize a list of changed-file display paths for the log header. Caps the
+ * list so the header stays signal — a wall of 30+ paths (test files, configs,
+ * assets) buries what actually changed.
+ */
+function summarizeChangedFiles(files, max = 8) {
+  if (!files.length) return "none";
+  if (files.length <= max) return files.join(", ");
+  return `${files.slice(0, max).join(", ")}, +${files.length - max} more (${files.length} total)`;
+}
+
+/**
  * Format the files object into a readable prompt section.
  * Returns a string ready to insert into the ask prompt.
  */
@@ -281,10 +292,14 @@ function ensureDirs() {
 // ---------------------------------------------------------------------------
 
 /**
- * runAsk(cfg, state) -> Promise<AskResult>
+ * runAsk(cfg, state, opts) -> Promise<AskResult>
  *
  * Phase 1: observe the work folder, compute the file delta, call the provider
  * to generate grounded interview questions, and persist the RAW files.
+ *
+ * opts.allowEmpty (default false): when there is no file delta, proceed anyway
+ * with a "reflection" check-in (questions about meetings/decisions/being stuck)
+ * instead of short-circuiting to { changed: false }.
  *
  * Writes:
  *   raw/work/<date>.json   — work delta + file excerpts (verbatim)
@@ -294,7 +309,8 @@ function ensureDirs() {
  *
  * Returns:
  * {
- *   changed: boolean,          — false if no file changes detected
+ *   changed: boolean,          — false if no file changes detected (and not allowEmpty)
+ *   reflective: boolean,       — true when this is a no-delta reflection check-in
  *   date: string,
  *   questions: string|null,    — raw LLM output (numbered list)
  *   questionList: string[],    — individual question strings (with numbering)
@@ -302,18 +318,23 @@ function ensureDirs() {
  *   delta: object,             — { isFirstRun, added, modified, deleted }
  * }
  */
-async function runAsk(cfg, state) {
+async function runAsk(cfg, state, opts = {}) {
   const curr = snapshot(rootsOf(cfg));
   const d = diff(state.files, curr);
   const date = today();
   const changed = [...d.added, ...d.modified];
+  const hasDelta = changed.length > 0 || d.deleted.length > 0;
 
-  if (changed.length === 0 && d.deleted.length === 0) {
-    return { changed: false, date, questions: null, questionList: [], files: {}, delta: d };
+  // No file changes: dead-end as before UNLESS the caller opted into a
+  // reflection check-in (opts.allowEmpty) — a lot of real build progress is a
+  // meeting, a decision, or time spent stuck, none of which moves a file.
+  if (!hasDelta && !opts.allowEmpty) {
+    return { changed: false, reflective: false, date, questions: null, questionList: [], files: {}, delta: d };
   }
 
-  const files = gatherDelta(cfg, d);
-  const deltaText = deltaForPrompt(files);
+  const reflective = !hasDelta;
+  const files = reflective ? {} : gatherDelta(cfg, d);
+  const deltaText = reflective ? "(no file changes this session)" : deltaForPrompt(files);
 
   const week = plan.weeklyView(plan.readWeeklyPlan(plan.mondayOf(date)));
   const prompts = cfg.prompts || {};
@@ -324,6 +345,7 @@ async function runAsk(cfg, state) {
     deltaText,
     deleted: d.deleted,
     guidance: prompts.askGuidance,
+    reflective,
   });
 
   const questions = await complete(prompt, { provider: cfg.provider, config: cfg });
@@ -347,7 +369,7 @@ async function runAsk(cfg, state) {
     .join("\n");
   fs.writeFileSync(chatPath, `# Interview — ${date}\n\n${qLines}`);
 
-  return { changed: true, date, questions, questionList, files, delta: d };
+  return { changed: true, reflective, date, questions, questionList, files, delta: d };
 }
 
 /**
@@ -453,7 +475,7 @@ async function runSync(cfg, state, input) {
   const header =
     `# Builder Log — ${date}\n\n` +
     `_Builder: ${cfg.builder?.name || "?"} · Project: ${cfg.builder?.project || "?"}_\n` +
-    `_Files changed: ${changedFiles.join(", ") || "none"}_\n\n`;
+    `_Files changed: ${summarizeChangedFiles(changedFiles)}_\n\n`;
 
   const logPath = path.join(ROOT, "log", `${date}.md`);
   fs.writeFileSync(logPath, header + entry + "\n");

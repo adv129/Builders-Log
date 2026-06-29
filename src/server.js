@@ -432,6 +432,8 @@ async function handleRequest(req, res) {
     }
     busy = true;
     try {
+      let body = {};
+      try { const raw = await readBody(req); if (raw && raw.trim()) body = JSON.parse(raw); } catch {}
       const cfg = core.loadConfig();
       if (!cfg) {
         apiError(res, 400, "no config — run setup first");
@@ -439,7 +441,7 @@ async function handleRequest(req, res) {
       }
       const state = core.loadState();
       core.ensureDirs();
-      const result = await core.runAsk(cfg, state);
+      const result = await core.runAsk(cfg, state, { allowEmpty: !!body.allowEmpty });
       json(res, 200, result);
     } catch (e) {
       if (!res.headersSent) apiError(res, 500, e.message);

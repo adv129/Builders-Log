@@ -286,16 +286,25 @@ function renderCheckin(container) {
 
       if (!result || !result.changed) {
         const empty = el("div", "empty-state");
-        empty.appendChild(el("p", null, "No new work since your last check-in."));
-        empty.appendChild(el("p", "muted", "Edit something in your project folder and try again."));
+        empty.appendChild(el("p", null, "No file changes since your last check-in."));
+        empty.appendChild(el("p", "muted",
+          "Not all progress is code — meetings, decisions, getting stuck, and user " +
+          "conversations all count. Check in about those, or edit a file and retry."));
         screen.appendChild(empty);
-        const btn = el("button", "btn-secondary", "Try again");
-        btn.addEventListener("click", doAsk);
-        screen.appendChild(btn);
+        const row = el("div", "generate-row");
+        const reflectBtn = el("button", "btn-primary", "Check in anyway");
+        reflectBtn.addEventListener("click", () => doAsk({ allowEmpty: true }));
+        row.appendChild(reflectBtn);
+        const btn = el("button", "btn-secondary", "Re-scan files");
+        btn.addEventListener("click", () => doAsk());
+        row.appendChild(btn);
+        screen.appendChild(row);
       } else {
         const qs = result.questionList || [];
         screen.appendChild(el("p", "screen-desc",
-          `Answer these questions about your work, then click "Generate entry" to create your log.`));
+          result.reflective
+            ? `No files changed — reflect on what you did, decided, or got stuck on, then click "Generate entry."`
+            : `Answer these questions about your work, then click "Generate entry" to create your log.`));
 
         if (s.error) screen.appendChild(errorBox(s.error));
 
@@ -442,11 +451,11 @@ function renderCheckin(container) {
     doAsk();
   }
 
-  async function doAsk() {
+  async function doAsk(opts = {}) {
     s.phase = "asking"; s.error = null;
     draw();
     try {
-      const result = await api("POST", "/api/ask");
+      const result = await api("POST", "/api/ask", { allowEmpty: !!opts.allowEmpty });
       s.askResult = result;
       s.date = result.date;
       s.phase = "questions";
