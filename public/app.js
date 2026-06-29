@@ -1339,10 +1339,6 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
 
   // ── Prompts (advanced) ──
   const promptSec = section("Prompts (advanced)");
-  promptSec.appendChild(el("p", "muted",
-    "Steer how the agent is instructed. These control its voice and behavior. " +
-    "The locked parts below — output formats and the strict JSON the agent must " +
-    "return — stay fixed so your log never breaks."));
 
   if (!draft.prompts) draft.prompts = {};
 
@@ -1384,20 +1380,6 @@ function renderSettingsForm(container, cfg, providers, promptDefaults = {}) {
     "What the check-in questions should surface. The “numbered list only” output format stays fixed.", 6);
   promptField("Entry synthesis guidance (optional)", "synthesisGuidance",
     "Extra steering for the written entry. The three sections (Builder Log / For your instructor / Friction check) stay fixed.", 3);
-
-  const locked = el("div", "callout");
-  locked.appendChild(el("p", "callout-title", "Locked — not editable"));
-  const lockedList = document.createElement("ul");
-  [
-    "Fact extraction — the agent must return strict JSON the app parses to track your commitments and blockers. Editing it would corrupt your log.",
-    "Output formats and the entry's section headers.",
-  ].forEach((t) => {
-    const li = document.createElement("li");
-    li.textContent = t;
-    lockedList.appendChild(li);
-  });
-  locked.appendChild(lockedList);
-  promptSec.appendChild(locked);
 
   container.appendChild(promptSec);
 
