@@ -550,6 +550,17 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   margin-top: 0.5rem;
 }
 
+/* Confirm-before-override warning (auto-dismisses after 5s). */
+.confirm-warn {
+  margin-top: 0.6rem;
+  padding: 0.55rem 0.8rem;
+  background: var(--yellow-tint);
+  border: 1.5px solid var(--ink);
+  border-radius: var(--radius-sm);
+  font-size: 0.85rem;
+  line-height: 1.4;
+}
+
 /* ── Plans (settings) ── */
 .project-plan-disclosure summary {
   cursor: pointer;

@@ -237,6 +237,9 @@ function renderCheckin(container) {
     slackSent: false,      // questions DM'd to the builder's Slack this session
     slackMsg: "",          // persistent status under the Slack button
     slackMsgCls: "",       // status class (success/warn/error)
+    manualArmed: false,    // first click of a manual action while awaiting Slack
+    manualWarn: "",        // confirm-warning text (auto-clears after 5s)
+    manualTimer: null,
     error: null,
   };
 
@@ -251,7 +254,7 @@ function renderCheckin(container) {
       if (s.error) screen.appendChild(errorBox(s.error));
       const row = el("div", "generate-row");
       const btn = el("button", "btn-primary", "Start check-in");
-      btn.addEventListener("click", doAsk);
+      btn.addEventListener("click", onStartCheckin);
       row.appendChild(btn);
 
       // In a rush? Do the whole check-in over Slack. First click generates the
@@ -266,6 +269,12 @@ function renderCheckin(container) {
         row.appendChild(slackStatus);
       }
       screen.appendChild(row);
+
+      if (s.manualWarn) {
+        const w = el("div", "confirm-warn");
+        w.textContent = s.manualWarn;
+        screen.appendChild(w);
+      }
     }
 
     if (s.phase === "asking") {
@@ -411,6 +420,28 @@ function renderCheckin(container) {
     checkinRoot.appendChild(screen);
   }
 
+  // Guard the manual "Start check-in" while a Slack check-in is pending: first
+  // click warns (auto-clears after 5s); a second click proceeds and cancels the
+  // Slack flow, so any reply that arrives is ignored.
+  function onStartCheckin() {
+    if (s.slackSent && !s.manualArmed) {
+      s.manualArmed = true;
+      s.manualWarn = "Are you sure? You have a Slack check-in pending. " +
+        "Click “Start check-in” again to do it manually — this cancels the Slack one.";
+      draw();
+      clearTimeout(s.manualTimer);
+      s.manualTimer = setTimeout(() => { s.manualArmed = false; s.manualWarn = ""; draw(); }, 5000);
+      return;
+    }
+    clearTimeout(s.manualTimer);
+    s.manualArmed = false; s.manualWarn = "";
+    if (s.slackSent) {
+      s.slackSent = false; s.slackMsg = ""; s.slackMsgCls = "";
+      api("POST", "/api/checkin/cancel-slack").catch(() => {});
+    }
+    doAsk();
+  }
+
   async function doAsk() {
     s.phase = "asking"; s.error = null;
     draw();
@@ -516,7 +547,10 @@ function renderCheckin(container) {
 // ── "This week" panel — objectives / progress / blockers, set via web or Slack ──
 // Rendered below the daily check-in. Self-managing: owns its own fetch + redraw.
 function drawWeekPanel(root) {
-  const st = { data: null, mode: "view", error: null, draftObjectives: "" };
+  const st = {
+    data: null, mode: "view", error: null, draftObjectives: "",
+    manualArmed: false, manualWarn: null, manualTimer: null,
+  };
 
   function load() {
     root.innerHTML = "";
@@ -602,11 +636,7 @@ function drawWeekPanel(root) {
 
     const actions = el("div", "week-actions");
     const setBtn = el("button", "btn-primary", objs.length ? "Update priorities" : "Set priorities");
-    setBtn.addEventListener("click", () => {
-      st.draftObjectives = objs.map((o) => o.text).join("\n");
-      st.mode = "edit";
-      render();
-    });
+    setBtn.addEventListener("click", () => onSetPriorities(objs));
     actions.appendChild(setBtn);
     if (d.slackEnabled) {
       const syncBtn = el("button", "btn-secondary", "Sync with Slack");
@@ -614,7 +644,38 @@ function drawWeekPanel(root) {
       actions.appendChild(syncBtn);
     }
     panel.appendChild(actions);
+
+    if (st.manualWarn) {
+      const w = el("div", "confirm-warn");
+      w.textContent = st.manualWarn;
+      panel.appendChild(w);
+    }
     root.appendChild(panel);
+  }
+
+  // Guard manual "Set/Update priorities" while awaiting the instructor in Slack:
+  // first click warns (auto-clears after 5s); a second click proceeds and cancels
+  // the pending instructor request, so their reply is ignored.
+  function onSetPriorities(objs) {
+    const awaiting = st.data && st.data.awaitingInstructor;
+    if (awaiting && !st.manualArmed) {
+      st.manualArmed = true;
+      st.manualWarn = "Are you sure? You're waiting on your instructor in Slack. " +
+        "Click the button again to set priorities manually — this cancels the Slack request.";
+      render();
+      clearTimeout(st.manualTimer);
+      st.manualTimer = setTimeout(() => { st.manualArmed = false; st.manualWarn = null; render(); }, 5000);
+      return;
+    }
+    clearTimeout(st.manualTimer);
+    st.manualArmed = false; st.manualWarn = null;
+    if (awaiting) {
+      api("POST", "/api/week/cancel-slack").catch(() => {});
+      if (st.data) st.data.awaitingInstructor = false;
+    }
+    st.draftObjectives = (objs || []).map((o) => o.text).join("\n");
+    st.mode = "edit";
+    render();
   }
 
   async function saveObjectives(text) {

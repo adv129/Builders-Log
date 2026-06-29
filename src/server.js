@@ -708,6 +708,18 @@ async function handleRequest(req, res) {
     return;
   }
 
+  // POST /api/week/cancel-slack — abandon a pending instructor request so any
+  // reply is ignored (the builder chose to set priorities manually instead).
+  if (req.method === "POST" && pathname === "/api/week/cancel-slack") {
+    const state = core.loadState();
+    if (state.weeklyPriorities) {
+      state.weeklyPriorities.awaitingInstructor = false;
+      core.saveState(state);
+    }
+    json(res, 200, { ok: true });
+    return;
+  }
+
   // ── Daily check-in over Slack (Sync with Slack) ─────────────────────────────
 
   // GET /api/checkin/status — whether a Slack check-in is awaiting a reply.
@@ -768,6 +780,17 @@ async function handleRequest(req, res) {
     } catch (e) {
       if (!res.headersSent) apiError(res, 500, e.message);
     }
+    return;
+  }
+
+  // POST /api/checkin/cancel-slack — abandon a pending Slack check-in so any
+  // reply is ignored (the builder chose to check in manually instead).
+  if (req.method === "POST" && pathname === "/api/checkin/cancel-slack") {
+    const state = core.loadState();
+    state.slack = state.slack || {};
+    state.slack.checkinAwaiting = false;
+    core.saveState(state);
+    json(res, 200, { ok: true });
     return;
   }
 
