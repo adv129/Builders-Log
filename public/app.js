@@ -670,6 +670,35 @@ function drawWeekPanel(root) {
     panel.appendChild(el("p", "screen-desc",
       "Your objectives for the week — set them yourself, or pull them from your instructor over Slack."));
 
+    // Keep the person you're syncing with — and what they're measuring you
+    // against — in view while you log.
+    const instr = (appConfig && appConfig.instructor) || {};
+    if (instr.name || instr.currentGoal) {
+      const mc = el("div", "mentor-context");
+      if (instr.name) {
+        const who = el("div", "mentor-line");
+        who.appendChild(el("span", "mentor-key", "Mentor"));
+        who.appendChild(el("span", "mentor-val", esc(instr.name)));
+        mc.appendChild(who);
+      }
+      if (instr.currentGoal) {
+        const g = el("div", "mentor-line");
+        g.appendChild(el("span", "mentor-key", "Goal"));
+        g.appendChild(el("span", "mentor-val", esc(instr.currentGoal)));
+        mc.appendChild(g);
+      }
+      panel.appendChild(mc);
+    }
+
+    // Nudge when triage is still running on generic defaults — the mentor hasn't
+    // calibrated yet. Made actionable (ask via Slack) in the Instructor settings.
+    const prefsDefault = instr.name && (!instr.preferencesSource || instr.preferencesSource === "default");
+    if (prefsDefault) {
+      panel.appendChild(infoBox(
+        "Your mentor hasn't set their preferences yet, so instructor notes use generic " +
+        "defaults. Calibrate them in Settings → Instructor for sharper, on-target updates."));
+    }
+
     if (st.error) panel.appendChild(errorBox(st.error));
 
     if (d.awaitingInstructor) {
