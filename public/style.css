@@ -525,26 +525,8 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   letter-spacing: -0.01em;
   margin: 1.5rem 0 0.6rem;
 }
-
-/* Mentor context — who you're syncing with + their current goal. A solid
-   blue-tint callout (brand), header-sized title, bolded goal markers. */
-.mentor-context {
-  background: var(--blue-tint);
-  border: 1.5px solid var(--ink);
-  border-radius: var(--radius);
-  box-shadow: var(--shadow);
-  padding: 1rem 1.25rem 1.1rem;
-  margin-bottom: 1.75rem;
-}
-.mentor-context .week-section-title { margin: 0; }
-.mentor-goal-label {
-  font-size: 0.95rem;
-  font-weight: 700;
-  color: var(--ink);
-  margin: 0.6rem 0 0.3rem;
-}
-.mentor-goal { font-size: 0.95rem; line-height: 1.6; color: var(--text); }
-.mentor-goal strong { font-weight: 700; }
+/* First section heading sits right under the panel's h1 — no extra top gap. */
+.week-panel .week-section-title:first-of-type { margin-top: 0.5rem; }
 .week-objectives,
 .week-progress,
 .week-blockers,

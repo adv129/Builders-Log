@@ -677,40 +677,14 @@ function drawWeekPanel(root) {
     return esc(p).replace(/^(\d{4}-\d{2}-\d{2}):/, "<strong>$1:</strong>");
   }
 
-  // Bold "1." / "1a." / "2b." markers in the mentor's goal and turn tabs into
-  // line breaks so a structured goal reads as a list, not a run-on.
-  function fmtGoal(text) {
-    return esc(text)
-      .replace(/\t+/g, "\n")
-      .replace(/(^|\n|\s)(\d+[a-z]?\.)/g, "$1<strong>$2</strong>")
-      .replace(/\n/g, "<br>");
-  }
-
   function render() {
     root.innerHTML = "";
     const d = st.data || {};
     const panel = el("div", "screen week-panel");
 
-    // Mirror the daily check-in header: h1 + screen-desc subtitle.
     panel.appendChild(el("h1", null, "This week"));
-    panel.appendChild(el("p", "screen-desc",
-      "Your objectives for the week — set them yourself, or pull them from your instructor over Slack."));
 
-    // Keep the person you're syncing with — and what they're measuring you
-    // against — in view while you log.
     const instr = (appConfig && appConfig.instructor) || {};
-    if (instr.name || instr.currentGoal) {
-      const mc = el("div", "mentor-context");
-      mc.appendChild(el("div", "week-section-title",
-        instr.name ? "Working with " + esc(instr.name) : "Your mentor"));
-      if (instr.currentGoal) {
-        mc.appendChild(el("div", "mentor-goal-label", "Their goal for you"));
-        const goal = el("div", "mentor-goal");
-        goal.innerHTML = fmtGoal(instr.currentGoal);
-        mc.appendChild(goal);
-      }
-      panel.appendChild(mc);
-    }
 
     // Nudge when no instructor preferences are set yet (still on defaults), so
     // triage runs generic. Calibrate in Settings → Instructor.
