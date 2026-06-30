@@ -672,6 +672,16 @@ function drawWeekPanel(root) {
     return ul;
   }
 
+  // Collapsible section — native <details>, mirroring the Settings disclosure
+  // (chevron + hairline) but with a readable header. `open` sets the default.
+  function collapsible(title, open, contentEl) {
+    const sec = el("details", "week-section");
+    if (open) sec.open = true;
+    sec.appendChild(el("summary", "week-summary", esc(title)));
+    sec.appendChild(contentEl);
+    return sec;
+  }
+
   // Bold a leading "YYYY-MM-DD:" date on a progress line.
   function fmtProgress(p) {
     return esc(p).replace(/^(\d{4}-\d{2}-\d{2}):/, "<strong>$1:</strong>");
@@ -727,24 +737,25 @@ function drawWeekPanel(root) {
 
     const objs = d.objectives || [];
     if (objs.length) {
-      panel.appendChild(el("h3", "week-section-title", "Objectives"));
-      panel.appendChild(bulletList("week-objectives", objs, (o) => (o.done ? "✓ " : "• ") + o.text));
+      // Objectives default open; the rest collapse to keep the panel scannable.
+      panel.appendChild(collapsible("Objectives", true,
+        bulletList("week-objectives", objs, (o) => (o.done ? "✓ " : "• ") + o.text)));
     } else if (!d.awaitingInstructor) {
       panel.appendChild(el("p", "muted", "No objectives set for this week yet."));
     }
 
     if ((d.progress || []).length) {
-      panel.appendChild(el("h3", "week-section-title", "Progress"));
-      panel.appendChild(htmlList("week-progress", d.progress.slice(-6), fmtProgress));
+      panel.appendChild(collapsible("Progress", false,
+        htmlList("week-progress", d.progress.slice(-6), fmtProgress)));
     }
     if ((d.blockers || []).length) {
-      panel.appendChild(el("h3", "week-section-title", "Blockers"));
-      panel.appendChild(bulletList("week-blockers", d.blockers,
-        (b) => b.text + (b.count > 1 ? ` (seen ${b.count}×)` : "")));
+      panel.appendChild(collapsible("Blockers", false,
+        bulletList("week-blockers", d.blockers,
+          (b) => b.text + (b.count > 1 ? ` (seen ${b.count}×)` : ""))));
     }
     if ((d.whereToLook || []).length) {
-      panel.appendChild(el("h3", "week-section-title", "Where to look"));
-      panel.appendChild(bulletList("week-where", d.whereToLook, (w) => w));
+      panel.appendChild(collapsible("Where to look", false,
+        bulletList("week-where", d.whereToLook, (w) => w)));
     }
 
     const actions = el("div", "week-actions");

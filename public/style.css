@@ -534,25 +534,43 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
   border-top: 1.5px solid var(--hair);
 }
 
-/* Section headings inside the "This week" panel — a real header, bigger than
-   the items beneath it (not a tiny mono eyebrow). */
-.week-section-title {
+/* Collapsible sections inside the "This week" panel — same disclosure pattern
+   as Settings (chevron + hairline divider), but with a readable header instead
+   of a tiny mono eyebrow. Objectives default open; the rest start collapsed. */
+.week-section {
+  border-bottom: 1.5px solid var(--hair);
+}
+.week-section:last-of-type { border-bottom: none; }
+.week-summary {
   font-family: var(--font-sans);
   font-size: 1.05rem;
   font-weight: 700;
   color: var(--ink);
   letter-spacing: -0.01em;
-  margin: 1.5rem 0 0.6rem;
+  padding: 0.85rem 0;
+  cursor: pointer;
+  list-style: none;
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  user-select: none;
 }
-/* First section heading sits right under the panel's h1 — no extra top gap. */
-.week-panel .week-section-title:first-of-type { margin-top: 0.5rem; }
+.week-summary::-webkit-details-marker { display: none; }
+.week-summary::before {
+  content: "▸";
+  font-size: 0.85rem;
+  color: var(--accent);
+  transition: transform 0.15s ease;
+}
+.week-section[open] > .week-summary::before { transform: rotate(90deg); }
+.week-section[open] > .week-summary { padding-bottom: 0.5rem; }
 .week-objectives,
 .week-progress,
 .week-blockers,
 .week-where {
   list-style: none;
   padding: 0;
-  margin: 0.25rem 0 0.75rem;
+  margin: 0 0 0.9rem;
   display: flex;
   flex-direction: column;
   gap: 0.3rem;
