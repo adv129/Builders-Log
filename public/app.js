@@ -323,9 +323,21 @@ function renderCheckin(container) {
           screen.appendChild(block);
         });
 
+        // Catch-all for anything the generated questions didn't ask about.
+        const extrasBlock = el("div", "question-block");
+        const extrasLbl = el("label", "question-label", "Anything the questions missed? (optional)");
+        extrasLbl.htmlFor = "ans-extra";
+        extrasBlock.appendChild(extrasLbl);
+        const extrasTa = el("textarea", "answer-input");
+        extrasTa.id = "ans-extra";
+        extrasTa.rows = 3;
+        extrasTa.placeholder = "Decisions, context, progress, or blockers the questions didn't cover…";
+        extrasBlock.appendChild(extrasTa);
+        screen.appendChild(extrasBlock);
+
         const row = el("div", "generate-row");
         const genBtn = el("button", "btn-primary", "Generate entry");
-        genBtn.addEventListener("click", () => doSync(qs, textareas));
+        genBtn.addEventListener("click", () => doSync(qs, textareas, extrasTa));
         row.appendChild(genBtn);
         screen.appendChild(row);
       }
@@ -424,11 +436,17 @@ function renderCheckin(container) {
     draw();
   }
 
-  async function doSync(questions, textareas) {
+  async function doSync(questions, textareas, extrasTa) {
     const answers = questions.map((question, i) => ({
       question,
       answer: textareas[i].value.trim(),
     }));
+    // Append the free-text catch-all as its own answer, only if the builder
+    // wrote something, so the entry never carries an empty "anything else".
+    const extra = extrasTa ? extrasTa.value.trim() : "";
+    if (extra) {
+      answers.push({ question: "Anything else I wanted to capture (not prompted):", answer: extra });
+    }
     s.pendingAnswers = answers.map((a) => a.answer);
     s.phase = "generating"; s.error = null;
     draw();
