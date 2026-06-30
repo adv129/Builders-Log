@@ -515,28 +515,36 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 /* ── "This week" panel (check-in screen) ── */
 .week-panel { margin-top: 2.5rem; }
 
-/* Mentor context — who you're syncing with + their current goal. Same white
-   card / ink border / hard-shadow language as the rest of the app. */
+/* Section headings inside the "This week" panel — a real header, bigger than
+   the items beneath it (not a tiny mono eyebrow). */
+.week-section-title {
+  font-family: var(--font-sans);
+  font-size: 1.05rem;
+  font-weight: 700;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  margin: 1.5rem 0 0.6rem;
+}
+
+/* Mentor context — who you're syncing with + their current goal. A solid
+   blue-tint callout (brand), header-sized title, bolded goal markers. */
 .mentor-context {
-  background: var(--surface);
+  background: var(--blue-tint);
   border: 1.5px solid var(--ink);
   border-radius: var(--radius);
   box-shadow: var(--shadow);
-  padding: 1rem 1.25rem;
-  margin-bottom: 1.5rem;
-  display: flex;
-  flex-direction: column;
-  gap: 0.5rem;
+  padding: 1rem 1.25rem 1.1rem;
+  margin-bottom: 1.75rem;
 }
-.mentor-line { display: flex; gap: 0.65rem; font-size: 0.95rem; align-items: baseline; line-height: 1.45; }
-.mentor-key {
+.mentor-context .week-section-title { margin: 0; }
+.mentor-goal-label {
   font-size: 0.95rem;
   font-weight: 700;
   color: var(--ink);
-  flex-shrink: 0;
-  min-width: 3.75rem;
+  margin: 0.6rem 0 0.3rem;
 }
-.mentor-val { white-space: pre-wrap; color: var(--text); }
+.mentor-goal { font-size: 0.95rem; line-height: 1.6; color: var(--text); }
+.mentor-goal strong { font-weight: 700; }
 .week-objectives,
 .week-progress,
 .week-blockers,
@@ -553,13 +561,19 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .week-blockers li,
 .week-where li {
   font-size: 0.95rem;
+  line-height: 1.5;
   padding: 0.55rem 0.8rem;
-  background: var(--surface);
   border: 1.5px solid var(--ink);
   border-radius: var(--radius-sm);
   box-shadow: var(--shadow-sm);
 }
-.week-objectives li.done { color: var(--muted); text-decoration: line-through; }
+/* Color by meaning, using the brand's solid pastel tints. */
+.week-objectives li { background: var(--surface); }
+.week-objectives li.done { background: var(--green-tint); color: var(--muted); text-decoration: line-through; }
+.week-progress li { background: var(--green-tint); }
+.week-progress li strong { font-weight: 700; }
+.week-blockers li { background: var(--coral-tint); }
+.week-where li { background: var(--yellow-tint); }
 /* Same spacing as the daily check-in's .generate-row for a cohesive feel. */
 .week-actions {
   display: flex;

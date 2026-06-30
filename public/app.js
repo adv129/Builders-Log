@@ -660,6 +660,32 @@ function drawWeekPanel(root) {
     return ul;
   }
 
+  // Same as bulletList but the formatter returns (escaped) HTML, so we can bold
+  // dates / markers inside an item.
+  function htmlList(cls, items, fmtHtml) {
+    const ul = el("ul", cls);
+    items.forEach((it) => {
+      const li = document.createElement("li");
+      li.innerHTML = fmtHtml(it);
+      ul.appendChild(li);
+    });
+    return ul;
+  }
+
+  // Bold a leading "YYYY-MM-DD:" date on a progress line.
+  function fmtProgress(p) {
+    return esc(p).replace(/^(\d{4}-\d{2}-\d{2}):/, "<strong>$1:</strong>");
+  }
+
+  // Bold "1." / "1a." / "2b." markers in the mentor's goal and turn tabs into
+  // line breaks so a structured goal reads as a list, not a run-on.
+  function fmtGoal(text) {
+    return esc(text)
+      .replace(/\t+/g, "\n")
+      .replace(/(^|\n|\s)(\d+[a-z]?\.)/g, "$1<strong>$2</strong>")
+      .replace(/\n/g, "<br>");
+  }
+
   function render() {
     root.innerHTML = "";
     const d = st.data || {};
@@ -675,17 +701,13 @@ function drawWeekPanel(root) {
     const instr = (appConfig && appConfig.instructor) || {};
     if (instr.name || instr.currentGoal) {
       const mc = el("div", "mentor-context");
-      if (instr.name) {
-        const who = el("div", "mentor-line");
-        who.appendChild(el("span", "mentor-key", "Mentor"));
-        who.appendChild(el("span", "mentor-val", esc(instr.name)));
-        mc.appendChild(who);
-      }
+      mc.appendChild(el("div", "week-section-title",
+        instr.name ? "Working with " + esc(instr.name) : "Your mentor"));
       if (instr.currentGoal) {
-        const g = el("div", "mentor-line");
-        g.appendChild(el("span", "mentor-key", "Goal"));
-        g.appendChild(el("span", "mentor-val", esc(instr.currentGoal)));
-        mc.appendChild(g);
+        mc.appendChild(el("div", "mentor-goal-label", "Their goal for you"));
+        const goal = el("div", "mentor-goal");
+        goal.innerHTML = fmtGoal(instr.currentGoal);
+        mc.appendChild(goal);
       }
       panel.appendChild(mc);
     }
@@ -731,23 +753,23 @@ function drawWeekPanel(root) {
 
     const objs = d.objectives || [];
     if (objs.length) {
-      panel.appendChild(el("div", "section-label", "Objectives"));
+      panel.appendChild(el("h3", "week-section-title", "Objectives"));
       panel.appendChild(bulletList("week-objectives", objs, (o) => (o.done ? "✓ " : "• ") + o.text));
     } else if (!d.awaitingInstructor) {
       panel.appendChild(el("p", "muted", "No objectives set for this week yet."));
     }
 
     if ((d.progress || []).length) {
-      panel.appendChild(el("div", "section-label", "Progress"));
-      panel.appendChild(bulletList("week-progress", d.progress.slice(-6), (p) => p));
+      panel.appendChild(el("h3", "week-section-title", "Progress"));
+      panel.appendChild(htmlList("week-progress", d.progress.slice(-6), fmtProgress));
     }
     if ((d.blockers || []).length) {
-      panel.appendChild(el("div", "section-label", "Blockers"));
+      panel.appendChild(el("h3", "week-section-title", "Blockers"));
       panel.appendChild(bulletList("week-blockers", d.blockers,
-        (b) => b.text + (b.count > 1 ? ` (seen ${b.count}x)` : "")));
+        (b) => b.text + (b.count > 1 ? ` (seen ${b.count}×)` : "")));
     }
     if ((d.whereToLook || []).length) {
-      panel.appendChild(el("div", "section-label", "Where to look"));
+      panel.appendChild(el("h3", "week-section-title", "Where to look"));
       panel.appendChild(bulletList("week-where", d.whereToLook, (w) => w));
     }
 
