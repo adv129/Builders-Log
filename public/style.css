@@ -298,6 +298,11 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 
 /* ── Check-in screen ────────────────────────────────────────────────────────── */
 
+/* Breathing room from the sticky nav so "Daily Check-in" isn't crammed at the
+   top. The weekly panel below sits on the same page, so don't pad the bottom
+   here — the divider + the week panel's own top spacing handle the transition. */
+.checkin-screen { padding-top: 1.25rem; padding-bottom: 0; }
+
 .checkin-screen .btn-primary { margin-top: 0.5rem; }
 
 .question-block {
@@ -351,6 +356,14 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
    so buttons in the row stay the same height and vertically aligned. The
    .checkin-screen prefix is needed to outrank `.checkin-screen .btn-primary`. */
 .checkin-screen .generate-row > button { margin-top: 0; }
+
+/* Larger action buttons, shared by the daily check-in and the weekly panel, so
+   the two sections read as one cohesive page. */
+.checkin-screen .generate-row button,
+.week-actions button {
+  font-size: 0.9rem;
+  padding: 0.7rem 1.5rem;
+}
 
 .memory-summary {
   background: var(--surface);
@@ -513,7 +526,13 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 .commitment-text.done { color: var(--muted); text-decoration: line-through; }
 
 /* ── "This week" panel (check-in screen) ── */
-.week-panel { margin-top: 2.5rem; }
+/* A hairline divider + matching spacing tie it to the daily check-in above, so
+   the two read as sections of one page rather than two stacked blocks. */
+.week-panel {
+  margin-top: 2.5rem;
+  padding-top: 2.5rem;
+  border-top: 1.5px solid var(--hair);
+}
 
 /* Section headings inside the "This week" panel — a real header, bigger than
    the items beneath it (not a tiny mono eyebrow). */
@@ -552,7 +571,7 @@ button:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: var(--shadow); 
 /* Color by meaning, using the brand's solid pastel tints. */
 .week-objectives li { background: var(--surface); }
 .week-objectives li.done { background: var(--green-tint); color: var(--muted); text-decoration: line-through; }
-.week-progress li { background: var(--green-tint); }
+.week-progress li { background: var(--surface); }
 .week-progress li strong { font-weight: 700; }
 .week-blockers li { background: var(--coral-tint); }
 .week-where li { background: var(--yellow-tint); }
